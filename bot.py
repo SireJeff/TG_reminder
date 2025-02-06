@@ -2,16 +2,26 @@
 bot.py
 
 This is the main entry point for the bot. It integrates:
-  - User onboarding (Chunk 2)
-  - Main Menu & Navigation (Chunk 3)
-  - Tasks Module (Chunk 4)
-  - Goals Module (Chunk 5)
+  - Onboarding (language, timezone, summary schedule, random check-in)
+  - Main Menu & Navigation
+  - Tasks Module
+  - Goals Module
+  - Reminders Module
+  - Countdowns Module
+  - Random Check-Ins Module
+  - Summaries & Reports Module
+  - Quotes Module
 
 Ensure that the following modules/files are available:
   - database.py
   - modules/menu.py
   - modules/tasks.py
   - modules/goals.py
+  - modules/reminders.py
+  - modules/countdowns.py
+  - modules/random_checkins.py
+  - modules/summaries.py
+  - modules/quotes.py
 
 Replace "YOUR_TELEGRAM_BOT_TOKEN" with your actual bot token.
 """
@@ -28,8 +38,7 @@ BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # -------------------------------
-# Onboarding States & Global State Dictionary
-# (From Chunk 2)
+# Onboarding State Definitions (Chunk 2)
 # -------------------------------
 STATE_LANGUAGE = "language"
 STATE_TIMEZONE = "timezone"
@@ -43,7 +52,7 @@ STATE_COMPLETED = "completed"
 user_states = {}
 
 # -------------------------------
-# /start Command Handler & Onboarding Flow
+# /start Command Handler & Onboarding Flow (Chunk 2)
 # -------------------------------
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -73,7 +82,6 @@ def handle_start(message):
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
     markup.add(btn_english)
-    
     bot.send_message(message.chat.id, "Welcome to the bot! Please select your language:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_lang_") or call.data.startswith("set_summary_"))
@@ -205,15 +213,13 @@ def onboarding_message_handler(message):
             bot.send_message(message.chat.id, "Please enter a valid number (e.g., 2):")
 
 # -------------------------------
-# Integration: Main Menu Module
-# (Chunk 3)
+# Integration: Main Menu Module (Chunk 3)
 # -------------------------------
 from modules.menu import send_main_menu, register_menu_handlers
-register_menu_handlers(bot)  # Registers internal menu callback handlers.
+register_menu_handlers(bot)  # Registers main menu callback handlers.
 
 # -------------------------------
-# Integration: Tasks Module
-# (Chunk 4)
+# Integration: Tasks Module (Chunk 4)
 # -------------------------------
 from modules.tasks import start_add_task, handle_task_callbacks, handle_task_messages, tasks_states
 
@@ -226,8 +232,7 @@ def message_task_handler(message):
     handle_task_messages(bot, message)
 
 # -------------------------------
-# Integration: Goals Module
-# (Chunk 5)
+# Integration: Goals Module (Chunk 5)
 # -------------------------------
 from modules.goals import start_add_goal, handle_goal_callbacks, handle_goal_messages, goals_states
 
@@ -240,8 +245,59 @@ def message_goal_handler(message):
     handle_goal_messages(bot, message)
 
 # -------------------------------
-# Integration: Menu Selections
-# Override the placeholders in the Main Menu to actually call the modules.
+# Integration: Reminders Module (Chunk 6)
+# -------------------------------
+from modules.reminders import start_add_reminder, handle_reminder_callbacks, handle_reminder_messages, reminders_states
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("rem_"))
+def callback_reminder_handler(call):
+    handle_reminder_callbacks(bot, call)
+
+@bot.message_handler(func=lambda message: message.from_user.id in reminders_states)
+def message_reminder_handler(message):
+    handle_reminder_messages(bot, message)
+
+# -------------------------------
+# Integration: Countdowns Module (Chunk 7)
+# -------------------------------
+from modules.countdowns import start_add_countdown, handle_countdown_messages, handle_countdown_callbacks, countdowns_states
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("countdown_notify_"))
+def callback_countdown_handler(call):
+    handle_countdown_callbacks(bot, call)
+
+@bot.message_handler(func=lambda message: message.from_user.id in countdowns_states)
+def message_countdown_handler(message):
+    handle_countdown_messages(bot, message)
+
+# -------------------------------
+# Integration: Random Check-Ins Module (Chunk 8)
+# -------------------------------
+from modules.random_checkins import send_random_checkin, handle_random_checkin_callback, schedule_daily_checkins
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("random_"))
+def callback_random_handler(call):
+    handle_random_checkin_callback(bot, call)
+
+# -------------------------------
+# Integration: Summaries & Reports Module (Chunk 9)
+# -------------------------------
+from modules.summaries import send_summary, generate_summary
+# (You may later integrate scheduling of summaries using a scheduler.
+# For now, the menu option below will trigger the summary report.)
+
+# -------------------------------
+# Integration: Quotes Module (Chunk 10)
+# -------------------------------
+from modules.quotes import start_add_quote, handle_quote_messages, quotes_states, get_random_quote
+
+@bot.message_handler(func=lambda message: message.from_user.id in quotes_states)
+def message_quote_handler(message):
+    handle_quote_messages(bot, message)
+
+# -------------------------------
+# Integration: Main Menu Selections
+# (Overrides the placeholders in the Main Menu to call the proper modules.)
 # -------------------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("menu_"))
 def callback_menu_handler(call):
@@ -253,15 +309,17 @@ def callback_menu_handler(call):
     elif data == "menu_add_goal":
         start_add_goal(bot, chat_id, user_id)
     elif data == "menu_add_reminder":
-        bot.send_message(chat_id, "You selected Add Reminder. [Placeholder for reminders module]")
+        start_add_reminder(bot, chat_id, user_id)
     elif data == "menu_add_countdown":
-        bot.send_message(chat_id, "You selected Add Countdown. [Placeholder for countdowns module]")
+        start_add_countdown(bot, chat_id, user_id)
     elif data == "menu_view_summary":
-        bot.send_message(chat_id, "You selected View Summary. [Placeholder for summary module]")
+        # Call the summaries module to send a summary report.
+        send_summary(bot, chat_id, user_id)
     elif data == "menu_manage_items":
         bot.send_message(chat_id, "You selected Manage Items. [Placeholder for items management module]")
     elif data == "menu_quotes":
-        bot.send_message(chat_id, "You selected Quotes. [Placeholder for quotes module]")
+        # Start the quote addition flow.
+        start_add_quote(bot, chat_id, user_id)
     elif data == "menu_settings":
         bot.send_message(chat_id, "You selected Settings. [Placeholder for settings module]")
     else:
@@ -271,7 +329,7 @@ def callback_menu_handler(call):
 # Main Entry Point
 # -------------------------------
 if __name__ == "__main__":
-    # Initialize the database (Chunk 1).
+    # Initialize the database.
     init_db()
     print("Bot is running...")
     bot.infinity_polling()

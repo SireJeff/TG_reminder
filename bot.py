@@ -34,7 +34,7 @@ from database import get_db_connection, init_db
 # -------------------------------
 # Bot Initialization
 # -------------------------------
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # -------------------------------

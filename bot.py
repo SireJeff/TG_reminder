@@ -213,12 +213,6 @@ def onboarding_message_handler(message):
             bot.send_message(message.chat.id, "Please enter a valid number (e.g., 2):")
 
 # -------------------------------
-# Integration: Main Menu Module (Chunk 3)
-# -------------------------------
-from modules.menu import send_main_menu, register_menu_handlers
-register_menu_handlers(bot)  # Registers main menu callback handlers.
-
-# -------------------------------
 # Integration: Tasks Module (Chunk 4)
 # -------------------------------
 from modules.tasks import start_add_task, handle_task_callbacks, handle_task_messages, tasks_states
@@ -283,8 +277,7 @@ def callback_random_handler(call):
 # Integration: Summaries & Reports Module (Chunk 9)
 # -------------------------------
 from modules.summaries import send_summary, generate_summary
-# (You may later integrate scheduling of summaries using a scheduler.
-# For now, the menu option below will trigger the summary report.)
+# (For now, the "View Summary" menu option calls send_summary.)
 
 # -------------------------------
 # Integration: Quotes Module (Chunk 10)

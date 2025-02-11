@@ -2,7 +2,7 @@
 bot.py
 
 This is the main entry point for the bot. It integrates:
-  - Onboarding (language, timezone, summary schedule, random check-in)
+  - Onboarding (multilingual language selection, time zone selection via inline buttons, summary schedule, random check-in)
   - Main Menu & Navigation
   - Tasks Module
   - Goals Module
@@ -38,10 +38,52 @@ BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # -------------------------------
-# Onboarding State Definitions (Chunk 2)
+# Multilingual Message Dictionary
+# -------------------------------
+MESSAGES = {
+    'en': {
+        'welcome': "Welcome to the bot! Please select your language:",
+        'select_timezone': "Please select your timezone:",
+        'set_timezone': "Timezone set to {}.",
+        'select_summary': "How would you like to receive summaries? Choose one:",
+        'enter_daily_time': "Please enter the time for your daily summary in HH:MM format (e.g., 20:00):",
+        'enter_custom_interval': "Please enter the interval in hours for your summary (e.g., 3):",
+        'enter_random_checkins': "How many random check-ins per day would you like? (Enter a number, e.g., 2)",
+        'onboarding_complete': "Onboarding complete! Welcome to the bot."
+    },
+    'fa': {
+        'welcome': "به ریمایندینو خوش آمدید! لطفاً زبان خود را انتخاب کنید:",
+        'select_timezone': "لطفاً منطقه زمانی خود را انتخاب کنید:",
+        'set_timezone': "منطقه زمانی {} تنظیم شد.",
+        'select_summary': "چگونه می‌خواهید خلاصه‌ها را دریافت کنید؟ یکی را انتخاب کنید:",
+        'enter_daily_time': "لطفاً زمان دریافت خلاصه روزانه خود را به فرمت HH:MM وارد کنید (مثلاً 20:00):",
+        'enter_custom_interval': "لطفاً فاصله زمانی به ساعت برای دریافت خلاصه را وارد کنید (مثلاً 3):",
+        'enter_random_checkins': "چند بار در روز می‌خواهید یادآوری‌های تصادفی دریافت کنید؟ (یک عدد وارد کنید، مثلاً 2)",
+        'onboarding_complete': "فرایند راه‌اندازی کامل شد! به ریمایندینو خوش آمدید."
+    }
+}
+
+# -------------------------------
+# Pre-defined Time Zone Choices
+# -------------------------------
+TIMEZONE_CHOICES = [
+    ("Tehran", "Asia/Tehran"),
+    ("London", "Europe/London"),
+    ("New York", "America/New_York"),
+    ("Kolkata", "Asia/Kolkata"),
+    ("Shanghai", "Asia/Shanghai"),
+    ("Berlin", "Europe/Berlin"),
+    ("Los Angeles", "America/Los_Angeles"),
+    ("Sydney", "Australia/Sydney"),
+    ("Sao Paulo", "America/Sao_Paulo"),
+    ("Moscow", "Europe/Moscow")
+]
+
+# -------------------------------
+# Onboarding State Definitions
 # -------------------------------
 STATE_LANGUAGE = "language"
-STATE_TIMEZONE = "timezone"
+STATE_TIMEZONE = "timezone"      # Now handled via inline buttons
 STATE_SUMMARY_SCHEDULE = "summary_schedule"
 STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
 STATE_RANDOM_CHECKIN = "random_checkin"
@@ -52,7 +94,7 @@ STATE_COMPLETED = "completed"
 user_states = {}
 
 # -------------------------------
-# /start Command Handler & Onboarding Flow (Chunk 2)
+# /start Command Handler & Onboarding Flow
 # -------------------------------
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -64,7 +106,6 @@ def handle_start(message):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     if row is None:
-        # Create a new user record with default values.
         cursor.execute("""
             INSERT INTO users (user_id, language, timezone, summary_schedule, summary_time, random_checkin_max)
             VALUES (?, 'en', 'UTC', 'disabled', NULL, 0)
@@ -78,107 +119,137 @@ def handle_start(message):
         'data': {}
     }
     
-    # Prompt for language selection.
+    # Prompt for language selection with two buttons.
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
-    markup.add(btn_english)
-    bot.send_message(message.chat.id, "Welcome to the bot! Please select your language:", reply_markup=markup)
+    btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
+    markup.add(btn_english, btn_farsi)
+    # Use English welcome text by default (it will be replaced once language is set).
+    bot.send_message(message.chat.id, MESSAGES['en']['welcome'], reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("set_lang_") or call.data.startswith("set_summary_"))
-def onboarding_callback_handler(call):
+# -------------------------------
+# Language Selection Callback Handler
+# -------------------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_lang_"))
+def language_callback_handler(call):
     user_id = call.from_user.id
     if user_id not in user_states:
         return
-    state_info = user_states[user_id]
-    current_state = state_info.get('state')
+    selected_lang = call.data.split("set_lang_")[1]  # either "en" or "fa"
+    # Update user's language in DB.
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET language = ? WHERE user_id = ?", (selected_lang, user_id))
+    conn.commit()
+    conn.close()
 
-    # --- Language Selection ---
-    if call.data.startswith("set_lang_") and current_state == STATE_LANGUAGE:
-        selected_lang = call.data.split("set_lang_")[1]
-        # Update user's language in the DB.
+    user_states[user_id]['data']['language'] = selected_lang
+    # Move state to timezone selection.
+    user_states[user_id]['state'] = STATE_TIMEZONE
+    bot.answer_callback_query(call.id, f"Language set to {selected_lang}")
+    
+    # Send timezone selection inline keyboard.
+    lang = selected_lang
+    tz_markup = types.InlineKeyboardMarkup(row_width=2)
+    for label, tz_value in TIMEZONE_CHOICES:
+        # You can localize the label if needed. Here, we use the same label.
+        tz_btn = types.InlineKeyboardButton(text=label, callback_data=f"set_tz_{tz_value}")
+        tz_markup.add(tz_btn)
+    bot.send_message(call.message.chat.id, MESSAGES[lang]['select_timezone'], reply_markup=tz_markup)
+
+# -------------------------------
+# Time Zone Selection Callback Handler
+# -------------------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_tz_"))
+def timezone_callback_handler(call):
+    user_id = call.from_user.id
+    if user_id not in user_states:
+        return
+    tz_value = call.data.split("set_tz_")[1]
+    # Update user's timezone in DB.
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (tz_value, user_id))
+    conn.commit()
+    conn.close()
+
+    user_states[user_id]['data']['timezone'] = tz_value
+    user_states[user_id]['state'] = STATE_SUMMARY_SCHEDULE
+    lang = user_states[user_id]['data'].get('language', 'en')
+    bot.answer_callback_query(call.id, MESSAGES[lang]['set_timezone'].format(tz_value))
+    
+    # Send inline keyboard for summary schedule selection.
+    summary_markup = types.InlineKeyboardMarkup()
+    btn_daily = types.InlineKeyboardButton(text=("Daily" if lang == 'en' else "روزانه"), callback_data="set_summary_daily")
+    btn_custom = types.InlineKeyboardButton(text=("Every X hours" if lang == 'en' else "هر X ساعت"), callback_data="set_summary_custom")
+    btn_none = types.InlineKeyboardButton(text=("None" if lang == 'en' else "هیچ"), callback_data="set_summary_none")
+    summary_markup.add(btn_daily, btn_custom, btn_none)
+    bot.send_message(call.message.chat.id, MESSAGES[lang]['select_summary'], reply_markup=summary_markup)
+
+# -------------------------------
+# Summary Schedule Callback Handler
+# (Handles summary schedule selection)
+# -------------------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_summary_"))
+def summary_callback_handler(call):
+    user_id = call.from_user.id
+    if user_id not in user_states:
+        return
+    lang = user_states[user_id]['data'].get('language', 'en')
+    current_state = user_states[user_id]['state']
+    if current_state != STATE_SUMMARY_SCHEDULE:
+        return
+    selection = call.data.split("set_summary_")[1]
+    if selection == "daily":
+        user_states[user_id]['data']['summary_schedule'] = 'daily'
+        user_states[user_id]['state'] = STATE_SUMMARY_TIME
+        bot.answer_callback_query(call.id, "Daily summary selected")
+        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_daily_time'])
+    elif selection == "custom":
+        user_states[user_id]['data']['summary_schedule'] = 'custom'
+        user_states[user_id]['state'] = STATE_SUMMARY_TIME
+        bot.answer_callback_query(call.id, "Custom summary interval selected")
+        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_custom_interval'])
+    elif selection == "none":
+        user_states[user_id]['data']['summary_schedule'] = 'disabled'
+        # Update DB immediately.
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET language = ? WHERE user_id = ?", (selected_lang, user_id))
+        cursor.execute("UPDATE users SET summary_schedule = ? WHERE user_id = ?", ('disabled', user_id))
         conn.commit()
         conn.close()
-
-        user_states[user_id]['data']['language'] = selected_lang
-        user_states[user_id]['state'] = STATE_TIMEZONE
-
-        bot.answer_callback_query(call.id, "Language set to " + selected_lang)
-        bot.send_message(call.message.chat.id, "Please enter your timezone (e.g., Asia/Tehran or UTC+3:30):")
-    
-    # --- Summary Schedule Selection ---
-    elif call.data.startswith("set_summary_") and current_state == STATE_SUMMARY_SCHEDULE:
-        selection = call.data.split("set_summary_")[1]
-        if selection == "daily":
-            user_states[user_id]['data']['summary_schedule'] = 'daily'
-            user_states[user_id]['state'] = STATE_SUMMARY_TIME
-            bot.answer_callback_query(call.id, "Daily summary selected")
-            bot.send_message(call.message.chat.id, "Please enter the time for your daily summary in HH:MM format (e.g., 20:00):")
-        elif selection == "custom":
-            user_states[user_id]['data']['summary_schedule'] = 'custom'
-            user_states[user_id]['state'] = STATE_SUMMARY_TIME
-            bot.answer_callback_query(call.id, "Custom summary interval selected")
-            bot.send_message(call.message.chat.id, "Please enter the interval in hours for your summary (e.g., 3):")
-        elif selection == "none":
-            user_states[user_id]['data']['summary_schedule'] = 'disabled'
-            # Update DB immediately.
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET summary_schedule = ? WHERE user_id = ?", ('disabled', user_id))
-            conn.commit()
-            conn.close()
-
-            user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-            bot.answer_callback_query(call.id, "No summary will be sent")
-            bot.send_message(call.message.chat.id, "How many random check-ins per day would you like? (Enter a number, e.g., 2)")
+        user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
+        bot.answer_callback_query(call.id, "No summary will be sent")
+        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_random_checkins'])
     else:
-        bot.answer_callback_query(call.id, "Unhandled onboarding callback.")
+        bot.answer_callback_query(call.id, "Unhandled summary callback.")
 
-@bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('state') in [STATE_TIMEZONE, STATE_SUMMARY_TIME, STATE_RANDOM_CHECKIN])
+# -------------------------------
+# Onboarding Text Message Handler (for summary time and random check-ins)
+# -------------------------------
+@bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('state') in [STATE_SUMMARY_TIME, STATE_RANDOM_CHECKIN])
 def onboarding_message_handler(message):
     user_id = message.from_user.id
     current_state = user_states[user_id]['state']
     text = message.text.strip()
+    lang = user_states[user_id]['data'].get('language', 'en')
 
-    # --- Timezone Entry ---
-    if current_state == STATE_TIMEZONE:
-        # Save timezone in DB.
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (text, user_id))
-        conn.commit()
-        conn.close()
-
-        user_states[user_id]['data']['timezone'] = text
-        user_states[user_id]['state'] = STATE_SUMMARY_SCHEDULE
-
-        # Build inline keyboard for summary schedule options.
-        markup = types.InlineKeyboardMarkup()
-        btn_daily = types.InlineKeyboardButton(text="Daily", callback_data="set_summary_daily")
-        btn_custom = types.InlineKeyboardButton(text="Every X hours", callback_data="set_summary_custom")
-        btn_none = types.InlineKeyboardButton(text="None", callback_data="set_summary_none")
-        markup.add(btn_daily, btn_custom, btn_none)
-        bot.send_message(message.chat.id, "How would you like to receive summaries? Choose one:", reply_markup=markup)
-    
-    # --- Summary Time / Custom Interval ---
-    elif current_state == STATE_SUMMARY_TIME:
+    if current_state == STATE_SUMMARY_TIME:
         summary_schedule = user_states[user_id]['data'].get('summary_schedule')
         if summary_schedule == 'daily':
             try:
-                datetime.strptime(text, "%H:%M")  # Validate HH:MM format.
+                datetime.strptime(text, "%H:%M")  # Validate format.
+                # Update DB.
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("UPDATE users SET summary_schedule = ?, summary_time = ? WHERE user_id = ?", ('daily', text, user_id))
                 conn.commit()
                 conn.close()
-
                 user_states[user_id]['data']['summary_time'] = text
                 user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-                bot.send_message(message.chat.id, f"Daily summary set at {text}. Now, how many random check-ins per day would you like? (Enter a number, e.g., 2)")
+                bot.send_message(message.chat.id, f"{MESSAGES[lang]['enter_random_checkins']}")
             except ValueError:
-                bot.send_message(message.chat.id, "Invalid time format. Please enter HH:MM (e.g., 20:00)")
+                bot.send_message(message.chat.id, MESSAGES[lang]['enter_daily_time'])
         elif summary_schedule == 'custom':
             if text.isdigit():
                 conn = get_db_connection()
@@ -186,14 +257,11 @@ def onboarding_message_handler(message):
                 cursor.execute("UPDATE users SET summary_schedule = ?, summary_time = ? WHERE user_id = ?", ('custom', text, user_id))
                 conn.commit()
                 conn.close()
-
                 user_states[user_id]['data']['summary_time'] = text
                 user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-                bot.send_message(message.chat.id, f"Custom summary interval set to every {text} hours. Now, how many random check-ins per day would you like? (Enter a number, e.g., 2)")
+                bot.send_message(message.chat.id, MESSAGES[lang]['enter_random_checkins'])
             else:
-                bot.send_message(message.chat.id, "Please enter a valid number (e.g., 3):")
-    
-    # --- Random Check-In Preference ---
+                bot.send_message(message.chat.id, MESSAGES[lang]['enter_custom_interval'])
     elif current_state == STATE_RANDOM_CHECKIN:
         if text.isdigit():
             random_checkin = int(text)
@@ -202,15 +270,14 @@ def onboarding_message_handler(message):
             cursor.execute("UPDATE users SET random_checkin_max = ? WHERE user_id = ?", (random_checkin, user_id))
             conn.commit()
             conn.close()
-
             user_states[user_id]['data']['random_checkin'] = random_checkin
             user_states[user_id]['state'] = STATE_COMPLETED
-            bot.send_message(message.chat.id, "Onboarding complete! Welcome to the bot.")
-            # Show the Main Menu after onboarding.
+            bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
+            # Show Main Menu.
             from modules.menu import send_main_menu
             send_main_menu(bot, message.chat.id)
         else:
-            bot.send_message(message.chat.id, "Please enter a valid number (e.g., 2):")
+            bot.send_message(message.chat.id, MESSAGES[lang]['enter_random_checkins'])
 
 # -------------------------------
 # Integration: Tasks Module (Chunk 4)
@@ -306,12 +373,10 @@ def callback_menu_handler(call):
     elif data == "menu_add_countdown":
         start_add_countdown(bot, chat_id, user_id)
     elif data == "menu_view_summary":
-        # Call the summaries module to send a summary report.
         send_summary(bot, chat_id, user_id)
     elif data == "menu_manage_items":
         bot.send_message(chat_id, "You selected Manage Items. [Placeholder for items management module]")
     elif data == "menu_quotes":
-        # Start the quote addition flow.
         start_add_quote(bot, chat_id, user_id)
     elif data == "menu_settings":
         bot.send_message(chat_id, "You selected Settings. [Placeholder for settings module]")
@@ -322,7 +387,6 @@ def callback_menu_handler(call):
 # Main Entry Point
 # -------------------------------
 if __name__ == "__main__":
-    # Initialize the database.
     init_db()
     print("Bot is running...")
     bot.infinity_polling()

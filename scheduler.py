@@ -335,5 +335,3 @@ def schedule_random_checkins(bot, user_id, chat_id, random_checkin_max):
             args=[bot, chat_id, user_id]
         )
         print(f"Scheduled random check-in {i} for user {user_id} at {run_date}")
-
-

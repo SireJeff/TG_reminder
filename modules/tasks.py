@@ -1,61 +1,36 @@
-"""
-modules/tasks.py
-
-This module implements the Tasks functionality.
-It allows users to add tasks with an optional due date,
-and provides functions to list, mark as done, or delete tasks.
-
-Task Addition Flow:
-1. User initiates task creation (e.g., via the Main Menu).
-2. Bot: "Please enter the task title:"
-3. User sends title → state saved.
-4. Bot: "Would you like to set a due date for this task?" (Inline buttons: Yes / Skip)
-5. If Yes → Bot offers options: Today, Tomorrow, Custom.
-    - Today: Sets due date to today at 23:59.
-    - Tomorrow: Sets due date to tomorrow at 23:59.
-    - Custom: Bot prompts: "Enter due date and time in YYYY-MM-DD HH:MM format:".
-       The input is parsed using the date conversion module to support both Gregorian and Jalali dates.
-6. Once the due date is set (or skipped), the task is saved in the database.
-7. A confirmation message is sent.
-8. Additional helper functions allow listing, marking as done, and deleting tasks.
-"""
-
 import sqlite3
 from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
 from modules.date_conversion import parse_date  # Supports both Gregorian and Jalali date inputs
 
+# Import flow tracking functions from bot.py
+from bot import tracked_send_message, tracked_user_message, clear_flow_messages
+
 # Global dictionary to track task conversation state per user.
-# Structure: { user_id: { 'state': <state>, 'data': { ... } } }
 tasks_states = {}
 
 def start_add_task(bot, chat_id, user_id):
     """
     Initiates the add-task conversation.
-    Call this when the user selects "Add Task" from the Main Menu.
     """
-    tasks_states[user_id] = {
-        'state': 'awaiting_title',
-        'data': {}
-    }
-    bot.send_message(chat_id, "Please enter the task title:")
+    tasks_states[user_id] = {'state': 'awaiting_title', 'data': {}}
+    tracked_send_message(chat_id, user_id, "Please enter the task title:")
 
 def handle_task_callbacks(bot, call):
     """
-    Handles callback queries (inline button presses) for the task addition flow.
+    Handles callback queries for the task addition flow.
     """
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     if user_id not in tasks_states:
-        return  # Not currently in a task conversation
+        return  # Not in a task conversation
 
     current_state = tasks_states[user_id]['state']
     data = tasks_states[user_id]['data']
 
     # --- Due Date Decision ---
     if call.data == "task_set_due_yes" and current_state == 'awaiting_due_decision':
-        # User chose to set a due date. Offer options.
         tasks_states[user_id]['state'] = 'awaiting_due_option'
         markup = types.InlineKeyboardMarkup()
         btn_today = types.InlineKeyboardButton(text="Today", callback_data="task_due_today")
@@ -64,11 +39,9 @@ def handle_task_callbacks(bot, call):
         markup.add(btn_today, btn_tomorrow, btn_custom)
         bot.edit_message_text("Please select a due date option:", chat_id, call.message.message_id, reply_markup=markup)
     elif call.data == "task_set_due_skip" and current_state == 'awaiting_due_decision':
-        # User chose not to set a due date.
         save_task_in_db(user_id, data.get('title'), None)
         bot.edit_message_text("Task added without a due date.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
-        from bot import clear_flow_messages
         clear_flow_messages(chat_id, user_id)
     # --- Due Date Options ---
     elif call.data == "task_due_today" and current_state == 'awaiting_due_option':
@@ -76,7 +49,6 @@ def handle_task_callbacks(bot, call):
         save_task_in_db(user_id, data.get('title'), due_date)
         bot.edit_message_text("Task added with due date set to Today.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
-        from bot import clear_flow_messages
         clear_flow_messages(chat_id, user_id)
     elif call.data == "task_due_tomorrow" and current_state == 'awaiting_due_option':
         tomorrow = datetime.now() + timedelta(days=1)
@@ -84,10 +56,8 @@ def handle_task_callbacks(bot, call):
         save_task_in_db(user_id, data.get('title'), due_date)
         bot.edit_message_text("Task added with due date set to Tomorrow.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
-        from bot import clear_flow_messages
         clear_flow_messages(chat_id, user_id)
     elif call.data == "task_due_custom" and current_state == 'awaiting_due_option':
-        # Ask the user for a custom due date.
         tasks_states[user_id]['state'] = 'awaiting_custom_due_date'
         bot.edit_message_text("Please enter the custom due date and time in the format YYYY-MM-DD HH:MM (24hr):", chat_id, call.message.message_id)
     else:
@@ -96,13 +66,14 @@ def handle_task_callbacks(bot, call):
 def handle_task_messages(bot, message):
     """
     Handles text messages related to the add-task conversation.
-    This function should be registered as a message handler for users currently in tasks_states.
     """
     user_id = message.from_user.id
     chat_id = message.chat.id
     if user_id not in tasks_states:
         return  # Not in an active task conversation
-    
+
+    # Track user message for flow cleanup
+    tracked_user_message(message)
     current_state = tasks_states[user_id]['state']
     data = tasks_states[user_id]['data']
     text = message.text.strip()
@@ -115,16 +86,14 @@ def handle_task_messages(bot, message):
         btn_yes = types.InlineKeyboardButton(text="Yes", callback_data="task_set_due_yes")
         btn_skip = types.InlineKeyboardButton(text="Skip", callback_data="task_set_due_skip")
         markup.add(btn_yes, btn_skip)
-        bot.send_message(chat_id, "Would you like to set a due date for this task?", reply_markup=markup)
+        tracked_send_message(chat_id, user_id, "Would you like to set a due date for this task?", reply_markup=markup)
     elif current_state == 'awaiting_custom_due_date':
         # Expect a custom due date in "YYYY-MM-DD HH:MM" format.
         try:
-            # Use parse_date to support both Gregorian and Jalali date inputs.
             due_date = parse_date(text)
             save_task_in_db(user_id, data.get('title'), due_date)
             bot.send_message(chat_id, f"Task added with custom due date: {due_date.strftime('%Y-%m-%d %H:%M')}")
             tasks_states.pop(user_id, None)
-            from bot import clear_flow_messages
             clear_flow_messages(chat_id, user_id)
         except ValueError as e:
             bot.send_message(chat_id, f"Invalid date format or conversion error: {e}\nPlease enter the date and time as YYYY-MM-DD HH:MM")
@@ -133,12 +102,7 @@ def handle_task_messages(bot, message):
 
 def save_task_in_db(user_id, title, due_date):
     """
-    Saves the task in the database with status 'pending' and the current timestamp.
-    
-    Parameters:
-      - user_id: Telegram user ID.
-      - title: Task title.
-      - due_date: A datetime object for the due date, or None.
+    Saves the task in the database.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -150,12 +114,9 @@ def save_task_in_db(user_id, title, due_date):
     conn.commit()
     conn.close()
 
-# Additional Task Management Functions:
-
 def list_tasks(user_id):
     """
     Retrieves a list of tasks for the given user.
-    Returns a list of sqlite3.Row objects.
     """
     conn = get_db_connection()
     cursor = conn.cursor()

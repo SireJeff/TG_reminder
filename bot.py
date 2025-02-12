@@ -31,19 +31,33 @@ Ensure that the following modules/files are available:
   - modules/date_conversion.py
 
 Replace "YOUR_TELEGRAM_BOT_TOKEN" with your actual bot token.
+
+Revisions in this file:
+  - All messages sent as part of multi‐step flows (onboarding, summary schedule, etc.) now use tracked_send_message.
+  - In addition, all user-sent messages that are part of these flows are tracked via tracked_user_message.
+  - The clear_flow_messages function now attempts to delete both bot and user messages.
+  - Logging was added to aid in debugging message deletions.
 """
 
 import telebot
 from telebot import types
 from datetime import datetime
+import logging
+
+# Setup basic logging for debugging flow cleanup.
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from database import get_db_connection, init_db
 from modules.weekly_schedule import start_add_weekly_event, weekly_states
 
 # -------------------------------
 # Global Flow Tracking
 # -------------------------------
-# This dictionary will track the message IDs of bot-sent messages for each user’s active flow.
+# This dictionary tracks the message IDs of bot-sent messages for each user’s active flow.
 flow_messages = {}  # { user_id: [msg_id, msg_id, ...] }
+# This dictionary tracks the message IDs of user-sent messages that are part of a flow.
+flow_user_messages = {}  # { user_id: [msg_id, msg_id, ...] }
 
 def tracked_send_message(chat_id, user_id, text, **kwargs):
     """
@@ -51,26 +65,45 @@ def tracked_send_message(chat_id, user_id, text, **kwargs):
     in the global flow_messages dictionary.
     """
     msg = bot.send_message(chat_id, text, **kwargs)
+    logger.info(f"Tracking bot message {msg.message_id} for user {user_id}")
     if user_id not in flow_messages:
         flow_messages[user_id] = []
     flow_messages[user_id].append(msg.message_id)
     return msg
 
+def tracked_user_message(message):
+    """
+    Tracks a message sent by the user as part of an active flow.
+    """
+    user_id = message.from_user.id
+    logger.info(f"Tracking user message {message.message_id} for user {user_id}")
+    if user_id not in flow_user_messages:
+        flow_user_messages[user_id] = []
+    flow_user_messages[user_id].append(message.message_id)
+
 def clear_flow_messages(chat_id, user_id):
     """
-    Deletes all messages that were tracked for the given user.
+    Deletes all bot and user messages that were tracked for the given user.
     This helps ensure that when a flow finishes, the chat is cleaned up.
     """
     if user_id in flow_messages:
+        logger.info(f"Clearing bot messages for user {user_id}: {flow_messages[user_id]}")
         for msg_id in flow_messages[user_id]:
             try:
                 bot.delete_message(chat_id, msg_id)
-            except Exception:
-                pass  # ignore if the message cannot be deleted
+                logger.info(f"Deleted bot message {msg_id} for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete bot message {msg_id} for user {user_id}: {str(e)}")
         flow_messages[user_id] = []
-
-
-
+    if user_id in flow_user_messages:
+        logger.info(f"Clearing user messages for user {user_id}: {flow_user_messages[user_id]}")
+        for msg_id in flow_user_messages[user_id]:
+            try:
+                bot.delete_message(chat_id, msg_id)
+                logger.info(f"Deleted user message {msg_id} for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete user message {msg_id} for user {user_id}: {str(e)}")
+        flow_user_messages[user_id] = []
 
 # -------------------------------
 # Bot Initialization
@@ -255,9 +288,18 @@ STATE_SUMMARY_SCHEDULE = "summary_schedule"
 STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
 STATE_RANDOM_CHECKIN = "random_checkin"
 STATE_COMPLETED = "completed"
+user_states = {}  # Global dictionary to store onboarding conversation state per user.
 
-# Global dictionary to store onboarding conversation state per user.
-user_states = {}
+@bot.message_handler(func=lambda message: message.from_user.id in weekly_states)
+def message_weekly_handler(message):
+    from modules.weekly_schedule import handle_weekly_event_messages
+    user_lang = weekly_states.get(message.from_user.id, {}).get('data', {}).get('language', 'en')
+    handle_weekly_event_messages(bot, message, user_lang=user_lang)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("week_day_"))
+def weekly_callback_handler(call):
+    from modules.weekly_schedule import handle_weekly_event_callbacks
+    handle_weekly_event_callbacks(bot, call)
 
 # -------------------------------
 # /start Command Handler & Pre-Onboarding Flow
@@ -278,12 +320,12 @@ def handle_start(message):
         conn.commit()
     conn.close()
     user_states[user_id] = {'state': STATE_LANGUAGE, 'data': {}}
-    # Prompt for language selection.
+    # Prompt for language selection using tracked_send_message.
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
     btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
     markup.add(btn_english, btn_farsi)
-    bot.send_message(message.chat.id, MESSAGES['en']['welcome'], reply_markup=markup)
+    tracked_send_message(message.chat.id, user_id, MESSAGES['en']['welcome'], reply_markup=markup)
 
 # -------------------------------
 # /help Command Handler
@@ -325,12 +367,12 @@ def language_callback_handler(call):
     conn.commit()
     conn.close()
     user_states[user_id]['data']['language'] = selected_lang
-    # Instead of continuing immediately, send the detailed onboarding info message.
+    # Send the detailed onboarding info message using tracked_send_message.
     help_msg = MESSAGES[selected_lang]['onboard_info']
     markup = types.InlineKeyboardMarkup()
     btn_continue = types.InlineKeyboardButton(text=MESSAGES[selected_lang]['onboard_continue'], callback_data="onboard_continue")
     markup.add(btn_continue)
-    bot.send_message(call.message.chat.id, help_msg, reply_markup=markup)
+    tracked_send_message(call.message.chat.id, user_id, help_msg, reply_markup=markup)
     bot.answer_callback_query(call.id, f"Language set to {selected_lang}")
 
 # -------------------------------
@@ -340,7 +382,7 @@ def language_callback_handler(call):
 def onboard_continue_handler(call):
     user_id = call.from_user.id
     lang = user_states[user_id]['data'].get('language', 'en')
-    # Before continuing, clear all tracked flow messages.
+    # Before continuing, clear all tracked flow messages (bot & user).
     clear_flow_messages(call.message.chat.id, user_id)
     # Continue with onboarding: set state to TIMEZONE and show timezone options.
     user_states[user_id]['state'] = STATE_TIMEZONE
@@ -348,7 +390,7 @@ def onboard_continue_handler(call):
     for label, tz_value in TIMEZONE_CHOICES:
         tz_btn = types.InlineKeyboardButton(text=label, callback_data=f"set_tz_{tz_value}")
         tz_markup.add(tz_btn)
-    bot.send_message(call.message.chat.id, MESSAGES[lang]['select_timezone'], reply_markup=tz_markup)
+    tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['select_timezone'], reply_markup=tz_markup)
     bot.answer_callback_query(call.id, "")
 
 # -------------------------------
@@ -375,7 +417,7 @@ def timezone_callback_handler(call):
     btn_custom = types.InlineKeyboardButton(text=("Every X hours" if lang == 'en' else "هر X ساعت"), callback_data="set_summary_custom")
     btn_none = types.InlineKeyboardButton(text=("None" if lang == 'en' else "هیچ"), callback_data="set_summary_none")
     summary_markup.add(btn_daily, btn_custom, btn_none)
-    bot.send_message(call.message.chat.id, MESSAGES[lang]['select_summary'], reply_markup=summary_markup)
+    tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['select_summary'], reply_markup=summary_markup)
 
 # -------------------------------
 # Summary Schedule Callback Handler
@@ -393,12 +435,12 @@ def summary_callback_handler(call):
         user_states[user_id]['data']['summary_schedule'] = 'daily'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
         bot.answer_callback_query(call.id, "Daily summary selected")
-        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_daily_time'])
+        tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_daily_time'])
     elif selection == "custom":
         user_states[user_id]['data']['summary_schedule'] = 'custom'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
         bot.answer_callback_query(call.id, "Custom summary interval selected")
-        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_custom_interval'])
+        tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_custom_interval'])
     elif selection == "none":
         user_states[user_id]['data']['summary_schedule'] = 'disabled'
         from database import get_db_connection
@@ -409,7 +451,7 @@ def summary_callback_handler(call):
         conn.close()
         user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
         bot.answer_callback_query(call.id, "No summary will be sent")
-        bot.send_message(call.message.chat.id, MESSAGES[lang]['enter_random_checkins'])
+        tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
     else:
         bot.answer_callback_query(call.id, "Unhandled summary callback.")
 
@@ -419,6 +461,8 @@ def summary_callback_handler(call):
 @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('state') in [STATE_SUMMARY_TIME, STATE_RANDOM_CHECKIN])
 def onboarding_message_handler(message):
     user_id = message.from_user.id
+    # Track the user-sent message as part of the flow.
+    tracked_user_message(message)
     current_state = user_states[user_id]['state']
     text = message.text.strip()
     lang = user_states[user_id]['data'].get('language', 'en')
@@ -435,9 +479,9 @@ def onboarding_message_handler(message):
                 conn.close()
                 user_states[user_id]['data']['summary_time'] = text
                 user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-                bot.send_message(message.chat.id, MESSAGES[lang]['enter_random_checkins'])
+                tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
             except ValueError:
-                bot.send_message(message.chat.id, MESSAGES[lang]['enter_daily_time'])
+                tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_daily_time'])
         elif summary_schedule == 'custom':
             if text.isdigit():
                 from database import get_db_connection
@@ -448,9 +492,9 @@ def onboarding_message_handler(message):
                 conn.close()
                 user_states[user_id]['data']['summary_time'] = text
                 user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-                bot.send_message(message.chat.id, MESSAGES[lang]['enter_random_checkins'])
+                tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
             else:
-                bot.send_message(message.chat.id, MESSAGES[lang]['enter_custom_interval'])
+                tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_custom_interval'])
     elif current_state == STATE_RANDOM_CHECKIN:
         if text.isdigit():
             random_checkin = int(text)
@@ -462,13 +506,13 @@ def onboarding_message_handler(message):
             conn.close()
             user_states[user_id]['data']['random_checkin'] = random_checkin
             user_states[user_id]['state'] = STATE_COMPLETED
-            # Clear all flow messages before showing main menu.
+            # Clear all flow messages (both bot and user) before showing main menu.
             clear_flow_messages(message.chat.id, user_id)
             bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
             from modules.menu import send_main_menu
             send_main_menu(bot, message.chat.id, lang)
         else:
-            bot.send_message(message.chat.id, MESSAGES[lang]['enter_random_checkins'])
+            tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
 
 # -------------------------------
 # Integration: Tasks Module (Chunk 4)

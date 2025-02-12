@@ -3,21 +3,29 @@ from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
 
-# Old line (to be removed):
-# from bot import tracked_send_message, tracked_user_message, clear_flow_messages
-
 # New import:
 from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages
+from messages import MESSAGES
 
 # Global dictionary to track goal creation conversation state per user.
 goals_states = {}
+
+def get_user_language(user_id):
+    """Retrieves the user's language from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT language FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else 'en'
 
 def start_add_goal(bot, chat_id, user_id):
     """
     Initiates the add-goal conversation.
     """
+    lang = get_user_language(user_id)
     goals_states[user_id] = {'state': 'awaiting_title', 'data': {}}
-    tracked_send_message(chat_id, user_id, "Please enter the goal title:")
+    tracked_send_message(chat_id, user_id, MESSAGES[lang]['enter_goal_title'])
 
 def handle_goal_messages(bot, message):
     """
@@ -25,6 +33,7 @@ def handle_goal_messages(bot, message):
     """
     user_id = message.from_user.id
     chat_id = message.chat.id
+    lang = get_user_language(user_id)
     if user_id not in goals_states:
         return  # Not in an active goal conversation
 
@@ -40,17 +49,17 @@ def handle_goal_messages(bot, message):
         
         # Create an inline keyboard for frequency selection.
         markup = types.InlineKeyboardMarkup()
-        btn_daily = types.InlineKeyboardButton(text="Daily", callback_data="goal_freq_daily")
-        btn_weekly = types.InlineKeyboardButton(text="Weekly", callback_data="goal_freq_weekly")
-        btn_monthly = types.InlineKeyboardButton(text="Monthly", callback_data="goal_freq_monthly")
-        btn_seasonal = types.InlineKeyboardButton(text="Seasonal", callback_data="goal_freq_seasonal")
-        btn_yearly = types.InlineKeyboardButton(text="Yearly", callback_data="goal_freq_yearly")
+        btn_daily = types.InlineKeyboardButton(text=MESSAGES[lang]['goal_freq_daily'], callback_data="goal_freq_daily")
+        btn_weekly = types.InlineKeyboardButton(text=MESSAGES[lang]['goal_freq_weekly'], callback_data="goal_freq_weekly")
+        btn_monthly = types.InlineKeyboardButton(text=MESSAGES[lang]['goal_freq_monthly'], callback_data="goal_freq_monthly")
+        btn_seasonal = types.InlineKeyboardButton(text=MESSAGES[lang]['goal_freq_seasonal'], callback_data="goal_freq_seasonal")
+        btn_yearly = types.InlineKeyboardButton(text=MESSAGES[lang]['goal_freq_yearly'], callback_data="goal_freq_yearly")
         markup.row(btn_daily, btn_weekly)
         markup.row(btn_monthly, btn_seasonal, btn_yearly)
         
-        tracked_send_message(chat_id, user_id, "Please select the goal frequency:", reply_markup=markup)
+        tracked_send_message(chat_id, user_id, MESSAGES[lang]['select_goal_frequency'], reply_markup=markup)
     else:
-        tracked_send_message(chat_id, user_id, "Unexpected input. Please follow the instructions.")
+        tracked_send_message(chat_id, user_id, MESSAGES[lang]['unexpected_input'])
 
 def handle_goal_callbacks(bot, call):
     """
@@ -58,6 +67,7 @@ def handle_goal_callbacks(bot, call):
     """
     user_id = call.from_user.id
     chat_id = call.message.chat.id
+    lang = get_user_language(user_id)
     if user_id not in goals_states:
         return  # Not in an active goal conversation
 
@@ -83,16 +93,16 @@ def handle_goal_callbacks(bot, call):
             next_check_date = now  # Fallback (should not occur)
 
         save_goal_in_db(user_id, data.get('title'), frequency, next_check_date)
-        bot.answer_callback_query(call.id, "Goal added (" + frequency.capitalize() + ")")
+        bot.answer_callback_query(call.id, MESSAGES[lang]['goal_added'].format(frequency=frequency.capitalize()))
         bot.edit_message_text(
-            f"Goal added successfully.\nNext check date: {next_check_date.strftime('%Y-%m-%d %H:%M')}",
+            MESSAGES[lang]['goal_added_successfully'].format(next_check_date=next_check_date.strftime('%Y-%m-%d %H:%M')),
             chat_id,
             call.message.message_id
         )
         goals_states.pop(user_id, None)
         clear_flow_messages(chat_id, user_id)
     else:
-        bot.answer_callback_query(call.id, "Unknown goal action.")
+        bot.answer_callback_query(call.id, MESSAGES[lang]['unknown_goal_action'])
 
 def save_goal_in_db(user_id, title, frequency, next_check_date):
     """

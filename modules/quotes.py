@@ -11,54 +11,60 @@ Quote Addition Flow:
 3. The user sends the quote text.
 4. The quote is saved in the database with the current timestamp.
 5. Confirmation is sent back to the user.
-
-Additional Helper Functions:
-- list_quotes(user_id): Returns all quotes for the user.
-- delete_quote(user_id, quote_id): Deletes a specified quote.
-- get_random_quote(user_id): Retrieves a random quote from the database.
 """
 
 from datetime import datetime
 from telebot import types
 from database import get_db_connection
+from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages
+from messages import MESSAGES
 
 # Global dictionary to track the quote addition conversation state per user.
-# Structure: { user_id: { 'state': <state>, 'data': { ... } } }
 quotes_states = {}
+
+def get_user_language(user_id):
+    """Retrieves the user's language from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT language FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else 'en'
 
 def start_add_quote(bot, chat_id, user_id):
     """
     Initiates the add-quote conversation.
-    Call this when the user selects the "Quotes" option in the Main Menu.
+    Called when the user selects the "Quotes" option in the Main Menu.
     """
-    quotes_states[user_id] = {
-        'state': 'awaiting_quote_text',
-        'data': {}
-    }
-    bot.send_message(chat_id, "Please enter the quote you want to add:")
+    lang = get_user_language(user_id)
+    quotes_states[user_id] = {'state': 'awaiting_quote_text', 'data': {}}
+    tracked_send_message(chat_id, user_id, MESSAGES[lang]['enter_quote_text'])
 
 def handle_quote_messages(bot, message):
     """
     Handles text messages for the add-quote conversation.
-    This should be registered as a message handler for users in the quotes_states.
     """
     user_id = message.from_user.id
     chat_id = message.chat.id
+    lang = get_user_language(user_id)
 
     if user_id not in quotes_states:
         return  # Not in an active quote conversation
 
+    # Track the user message for cleanup.
+    tracked_user_message(message)
     current_state = quotes_states[user_id]['state']
     text = message.text.strip()
 
     if current_state == 'awaiting_quote_text':
         # Save the provided quote in the database.
         save_quote_in_db(user_id, text)
-        bot.send_message(chat_id, "Quote added successfully!")
-        # Clear the conversation state.
+        tracked_send_message(chat_id, user_id, MESSAGES[lang]['quote_added'])
+        # Clear the conversation state and clean up extra messages.
         quotes_states.pop(user_id, None)
+        clear_flow_messages(chat_id, user_id)
     else:
-        bot.send_message(chat_id, "Unexpected input. Please follow the instructions.")
+        tracked_send_message(chat_id, user_id, MESSAGES[lang]['unexpected_input'])
 
 def save_quote_in_db(user_id, quote_text):
     """

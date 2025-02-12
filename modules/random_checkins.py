@@ -17,6 +17,7 @@ Integration:
 
 import random
 from telebot import types
+from messages import MESSAGES
 
 # A simple dictionary holding check-in labels for English (en) and Persian (fa).
 CHECKIN_LABELS = {
@@ -48,15 +49,19 @@ CHECKIN_LABELS = {
     }
 }
 
+def get_user_language(user_id):
+    """A quick helper to retrieve the user's language from the database."""
+    from database import get_db_connection
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT language FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else 'en'
+
 def send_random_checkin(bot, chat_id, user_id, user_lang='en'):
     """
     Sends a random check-in message to the user with inline options, in the user's language.
-    
-    Parameters:
-        bot (TeleBot): The TeleBot instance.
-        chat_id (int): The Telegram chat ID.
-        user_id (int): The Telegram user ID.
-        user_lang (str): The user's language code ('en' or 'fa'), default 'en'.
     """
     labels = CHECKIN_LABELS.get(user_lang, CHECKIN_LABELS['en'])
 
@@ -78,19 +83,13 @@ def send_random_checkin(bot, chat_id, user_id, user_lang='en'):
 def handle_random_checkin_callback(bot, call):
     """
     Handles callback queries for random check-in actions.
-    
-    Parameters:
-        bot: The TeleBot instance.
-        call: The callback query from the check-in message.
     """
     chat_id = call.message.chat.id
     user_id = call.from_user.id
     data = call.data
 
-    # Retrieve user_lang from user states or DB; fallback to 'en'
-    # For demonstration, we do a quick fallback:
-    from bot import user_states  # Example: If 'user_states' is accessible in 'bot.py'
-    user_lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
+    # Retrieve user_lang from DB; fallback to 'en'
+    user_lang = get_user_language(user_id)
     labels = CHECKIN_LABELS.get(user_lang, CHECKIN_LABELS['en'])
 
     if data == "random_add_task":
@@ -117,20 +116,9 @@ def handle_random_checkin_callback(bot, call):
 def schedule_daily_checkins(bot, user_id, chat_id, random_checkin_max):
     """
     Schedules random check-ins for a user throughout the day.
-    
-    In a production environment, you would schedule these calls at random times.
-    Here, we simply send the check-in messages immediately for demonstration.
-    
-    Parameters:
-        bot: The TeleBot instance.
-        user_id: The Telegram user ID.
-        chat_id: The Telegram chat ID.
-        random_checkin_max: The maximum number of check-ins per day.
+    In production you would schedule these calls at random times.
+    For demonstration, we send the check-in messages immediately.
     """
-    # For demonstration, we instantly send random_checkin_max check-ins.
-    # In real code, you'd use a scheduling library to send them at random times.
-    from bot import user_states
-    user_lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
-    
+    user_lang = get_user_language(user_id)
     for _ in range(random_checkin_max):
         send_random_checkin(bot, chat_id, user_id, user_lang)

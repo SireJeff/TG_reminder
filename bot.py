@@ -50,67 +50,23 @@ logger = logging.getLogger(__name__)
 
 from database import get_db_connection, init_db
 from modules.weekly_schedule import start_add_weekly_event, weekly_states
+# Old line (to be removed):
+# from bot import tracked_send_message, tracked_user_message, clear_flow_messages
+
+# New import:
+from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages, set_bot
 
 # -------------------------------
 # Global Flow Tracking
 # -------------------------------
-# This dictionary tracks the message IDs of bot-sent messages for each user’s active flow.
-flow_messages = {}  # { user_id: [msg_id, msg_id, ...] }
-# This dictionary tracks the message IDs of user-sent messages that are part of a flow.
-flow_user_messages = {}  # { user_id: [msg_id, msg_id, ...] }
 
-def tracked_send_message(chat_id, user_id, text, **kwargs):
-    """
-    Sends a message using bot.send_message and stores its message_id
-    in the global flow_messages dictionary.
-    """
-    msg = bot.send_message(chat_id, text, **kwargs)
-    logger.info(f"Tracking bot message {msg.message_id} for user {user_id}")
-    if user_id not in flow_messages:
-        flow_messages[user_id] = []
-    flow_messages[user_id].append(msg.message_id)
-    return msg
-
-def tracked_user_message(message):
-    """
-    Tracks a message sent by the user as part of an active flow.
-    """
-    user_id = message.from_user.id
-    logger.info(f"Tracking user message {message.message_id} for user {user_id}")
-    if user_id not in flow_user_messages:
-        flow_user_messages[user_id] = []
-    flow_user_messages[user_id].append(message.message_id)
-
-def clear_flow_messages(chat_id, user_id):
-    """
-    Deletes all bot and user messages that were tracked for the given user.
-    This helps ensure that when a flow finishes, the chat is cleaned up.
-    """
-    if user_id in flow_messages:
-        logger.info(f"Clearing bot messages for user {user_id}: {flow_messages[user_id]}")
-        for msg_id in flow_messages[user_id]:
-            try:
-                bot.delete_message(chat_id, msg_id)
-                logger.info(f"Deleted bot message {msg_id} for user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to delete bot message {msg_id} for user {user_id}: {str(e)}")
-        flow_messages[user_id] = []
-    if user_id in flow_user_messages:
-        logger.info(f"Clearing user messages for user {user_id}: {flow_user_messages[user_id]}")
-        for msg_id in flow_user_messages[user_id]:
-            try:
-                bot.delete_message(chat_id, msg_id)
-                logger.info(f"Deleted user message {msg_id} for user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to delete user message {msg_id} for user {user_id}: {str(e)}")
-        flow_user_messages[user_id] = []
 
 # -------------------------------
 # Bot Initialization
 # -------------------------------
 BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
 bot = telebot.TeleBot(BOT_TOKEN)
-
+set_bot(bot)
 # -------------------------------
 # Multilingual Message Dictionary
 # -------------------------------

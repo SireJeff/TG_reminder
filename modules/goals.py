@@ -3,8 +3,11 @@ from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
 
-# Import flow tracking functions from bot.py
-from bot import tracked_send_message, tracked_user_message, clear_flow_messages
+# Old line (to be removed):
+# from bot import tracked_send_message, tracked_user_message, clear_flow_messages
+
+# New import:
+from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages
 
 # Global dictionary to track goal creation conversation state per user.
 goals_states = {}

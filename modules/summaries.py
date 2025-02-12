@@ -1,5 +1,3 @@
-# modules/summaries.py
-
 """
 This module implements the Summaries & Reports functionality.
 It generates a summary report for the user that includes:
@@ -93,7 +91,7 @@ def generate_summary(user_id, user_lang='en'):
                     due_str = due_date
             else:
                 due_str = ("No due date" if user_lang == 'en' else "بدون موعد")
-            summary_lines.append(f"- {title} (Due: {due_str})")
+            summary_lines.append(f"- {title}\n  (Due: {due_str})")
     else:
         summary_lines.append(labels['no_pending_tasks'])
     
@@ -111,16 +109,15 @@ def generate_summary(user_id, user_lang='en'):
             title = goal["title"]
             frequency = goal["frequency"]
             next_check_date = goal["next_check_date"]
-            # Localize frequency if desired:
-            freq_str = frequency
             if user_lang == 'fa':
                 if frequency == 'daily': freq_str = labels['daily_frequency']
                 elif frequency == 'weekly': freq_str = labels['weekly_frequency']
                 elif frequency == 'monthly': freq_str = labels['monthly_frequency']
                 elif frequency == 'seasonal': freq_str = labels['seasonal_frequency']
                 elif frequency == 'yearly': freq_str = labels['yearly_frequency']
+                else: freq_str = frequency
             else:
-                freq_str = freq_str.capitalize()
+                freq_str = frequency.capitalize()
             if next_check_date:
                 try:
                     next_check_dt = datetime.strptime(next_check_date, "%Y-%m-%d %H:%M:%S")
@@ -129,7 +126,7 @@ def generate_summary(user_id, user_lang='en'):
                     next_check_str = next_check_date
             else:
                 next_check_str = ("N/A" if user_lang == 'en' else "نامشخص")
-            summary_lines.append(f"- {title} ({freq_str} | Next: {next_check_str})")
+            summary_lines.append(f"- {title}\n  ({freq_str} | Next: {next_check_str})")
     else:
         summary_lines.append(f"\n{labels['no_goals']}")
     
@@ -152,7 +149,7 @@ def generate_summary(user_id, user_lang='en'):
                 trigger_str = trigger_dt.strftime("%Y-%m-%d %H:%M")
             except Exception:
                 trigger_str = trigger_time
-            summary_lines.append(f"- {title} (At: {trigger_str})")
+            summary_lines.append(f"- {title}\n  (At: {trigger_str})")
     else:
         summary_lines.append(f"\n{labels['no_reminders']}")
     
@@ -178,11 +175,13 @@ def generate_summary(user_id, user_lang='en'):
                     days = delta.days
                     hours, rem = divmod(delta.seconds, 3600)
                     minutes, _ = divmod(rem, 60)
-                    time_left = (f"{days}d {hours}h {minutes}m left" if user_lang == 'en' 
-                                 else f"{days}روز {hours}ساعت {minutes}دقیقه باقی‌مانده")
+                    if user_lang == 'en':
+                        time_left = f"{days}d {hours}h {minutes}m left"
+                    else:
+                        time_left = f"{days}روز {hours}ساعت {minutes}دقیقه باقی‌مانده"
             except Exception:
                 time_left = event_datetime
-            summary_lines.append(f"- {title}: {time_left}")
+            summary_lines.append(f"- {title}\n  {time_left}")
     else:
         summary_lines.append(f"\n{labels['no_countdowns']}")
     
@@ -200,8 +199,7 @@ def generate_summary(user_id, user_lang='en'):
             title = event["title"]
             day = event["day_of_week"]
             time_of_day = event["time_of_day"]
-            # For simplicity, we display the event as: "Title on Day at Time"
-            summary_lines.append(f"- {title} on {day} at {time_of_day}")
+            summary_lines.append(f"- {title}\n  on {day} at {time_of_day}")
     else:
         summary_lines.append(f"\n{labels['no_weekly_events']}")
     

@@ -1,30 +1,10 @@
 # modules/weekly_schedule.py
 
-"""
-This module implements the Weekly Schedule functionality.
-It allows users to add recurring events that occur on a specific weekday at a specific time.
-Users can add, list, update, and delete weekly events.
-Each event includes:
-  - A title (e.g., "Math Class")
-  - A day of the week (e.g., Monday, Tuesday, etc.)
-  - A time of day (HH:MM format)
-  
-Make sure to add a corresponding table in your database. For example:
-  
-CREATE TABLE IF NOT EXISTS weekly_schedule (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    day_of_week TEXT NOT NULL,  -- e.g., "Monday", "Tuesday", etc.
-    time_of_day TEXT NOT NULL,  -- stored as "HH:MM"
-    created_at DATETIME NOT NULL
-);
-"""
-
 import sqlite3
 from datetime import datetime
 from telebot import types
 from database import get_db_connection
+from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages
 
 # Bilingual messages for the weekly schedule module.
 WEEKLY_MSG = {
@@ -75,11 +55,8 @@ def start_add_weekly_event(bot, chat_id, user_id, user_lang='en'):
     """
     Initiates the add-weekly-event conversation.
     """
-    weekly_states[user_id] = {
-        'state': 'awaiting_title',
-        'data': {}
-    }
-    bot.send_message(chat_id, WEEKLY_MSG[user_lang]['enter_title'])
+    weekly_states[user_id] = {'state': 'awaiting_title', 'data': {}}
+    tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['enter_title'])
 
 def handle_weekly_event_messages(bot, message, user_lang='en'):
     """
@@ -90,6 +67,8 @@ def handle_weekly_event_messages(bot, message, user_lang='en'):
     if user_id not in weekly_states:
         return
 
+    # Track the user message for later cleanup.
+    tracked_user_message(message)
     current_state = weekly_states[user_id]['state']
     data = weekly_states[user_id]['data']
     text = message.text.strip()
@@ -97,7 +76,7 @@ def handle_weekly_event_messages(bot, message, user_lang='en'):
     if current_state == 'awaiting_title':
         data['title'] = text
         weekly_states[user_id]['state'] = 'awaiting_day'
-        # Send an inline keyboard for day selection.
+        # Create an inline keyboard for day selection.
         markup = types.InlineKeyboardMarkup(row_width=3)
         if user_lang == 'fa':
             for day_fa, day_eng in DAYS_OF_WEEK_FA:
@@ -107,21 +86,21 @@ def handle_weekly_event_messages(bot, message, user_lang='en'):
             for day in DAYS_OF_WEEK:
                 btn = types.InlineKeyboardButton(text=day[0], callback_data=f"week_day_{day[1]}")
                 markup.add(btn)
-        bot.send_message(chat_id, WEEKLY_MSG[user_lang]['select_day'], reply_markup=markup)
+        tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['select_day'], reply_markup=markup)
     elif current_state == 'awaiting_time':
-        # Expect time in HH:MM format.
         try:
             # Validate the time format.
             datetime.strptime(text, "%H:%M")
             data['time_of_day'] = text
             # Save the event.
             save_weekly_event_in_db(user_id, data['title'], data['day_of_week'], text)
-            bot.send_message(chat_id, WEEKLY_MSG[user_lang]['event_added'])
+            tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['event_added'])
             weekly_states.pop(user_id, None)
+            clear_flow_messages(chat_id, user_id)
         except ValueError:
-            bot.send_message(chat_id, WEEKLY_MSG[user_lang]['invalid_time'])
+            tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['invalid_time'])
     else:
-        bot.send_message(chat_id, "Unexpected input. Please follow the instructions.")
+        tracked_send_message(chat_id, user_id, "Unexpected input. Please follow the instructions.")
 
 def handle_weekly_event_callbacks(bot, call):
     """
@@ -139,9 +118,8 @@ def handle_weekly_event_callbacks(bot, call):
         day = call.data.split("week_day_")[1]
         data['day_of_week'] = day
         weekly_states[user_id]['state'] = 'awaiting_time'
-        # Ask for the time of day.
         lang = get_user_lang(user_id)
-        bot.send_message(chat_id, WEEKLY_MSG[lang]['select_time'])
+        tracked_send_message(chat_id, user_id, WEEKLY_MSG[lang]['select_time'])
         bot.answer_callback_query(call.id, f"Day set to {day}")
     else:
         bot.answer_callback_query(call.id, "Unknown weekly event action.")
@@ -163,7 +141,6 @@ def save_weekly_event_in_db(user_id, title, day_of_week, time_of_day):
 def list_weekly_events(user_id):
     """
     Retrieves a list of weekly events for the given user.
-    Returns a list of sqlite3.Row objects.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -205,7 +182,7 @@ def get_user_lang(user_id):
     Helper function to retrieve the user's language from user_states.
     Fallback to English if not set.
     """
-    from bot import user_states  # Assuming user_states is accessible from bot.py
+    from bot import user_states  # Local import to avoid circular dependency issues.
     if user_id in user_states and 'language' in user_states[user_id]['data']:
         return user_states[user_id]['data']['language']
     return 'en'

@@ -33,7 +33,6 @@ tasks_states = {}
 def start_add_task(bot, chat_id, user_id):
     """
     Initiates the add-task conversation.
-    
     Call this when the user selects "Add Task" from the Main Menu.
     """
     tasks_states[user_id] = {
@@ -69,18 +68,24 @@ def handle_task_callbacks(bot, call):
         save_task_in_db(user_id, data.get('title'), None)
         bot.edit_message_text("Task added without a due date.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
+        from bot import clear_flow_messages
+        clear_flow_messages(chat_id, user_id)
     # --- Due Date Options ---
     elif call.data == "task_due_today" and current_state == 'awaiting_due_option':
         due_date = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0)
         save_task_in_db(user_id, data.get('title'), due_date)
         bot.edit_message_text("Task added with due date set to Today.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
+        from bot import clear_flow_messages
+        clear_flow_messages(chat_id, user_id)
     elif call.data == "task_due_tomorrow" and current_state == 'awaiting_due_option':
         tomorrow = datetime.now() + timedelta(days=1)
         due_date = tomorrow.replace(hour=23, minute=59, second=59, microsecond=0)
         save_task_in_db(user_id, data.get('title'), due_date)
         bot.edit_message_text("Task added with due date set to Tomorrow.", chat_id, call.message.message_id)
         tasks_states.pop(user_id, None)
+        from bot import clear_flow_messages
+        clear_flow_messages(chat_id, user_id)
     elif call.data == "task_due_custom" and current_state == 'awaiting_due_option':
         # Ask the user for a custom due date.
         tasks_states[user_id]['state'] = 'awaiting_custom_due_date'
@@ -119,6 +124,8 @@ def handle_task_messages(bot, message):
             save_task_in_db(user_id, data.get('title'), due_date)
             bot.send_message(chat_id, f"Task added with custom due date: {due_date.strftime('%Y-%m-%d %H:%M')}")
             tasks_states.pop(user_id, None)
+            from bot import clear_flow_messages
+            clear_flow_messages(chat_id, user_id)
         except ValueError as e:
             bot.send_message(chat_id, f"Invalid date format or conversion error: {e}\nPlease enter the date and time as YYYY-MM-DD HH:MM")
     else:

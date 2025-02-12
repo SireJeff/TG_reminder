@@ -1,6 +1,6 @@
-"""
-modules/countdowns.py
+# modules/countdowns.py
 
+"""
 This module implements the Countdowns functionality.
 It allows users to add countdown events, compute the remaining time,
 and optionally set up periodic alerts (e.g., None, Daily, Weekly).
@@ -106,6 +106,7 @@ def handle_countdown_callbacks(bot, call):
 def finalize_countdown(bot, chat_id, user_id):
     """
     Finalizes the countdown event by saving it into the database and confirming to the user.
+    Then, clears all extra messages from the flow.
     """
     data = countdowns_states[user_id]['data']
     title = data.get('title')
@@ -117,8 +118,13 @@ def finalize_countdown(bot, chat_id, user_id):
     time_left = compute_time_left(event_datetime)
     bot.send_message(chat_id,
                      f"Countdown added:\nEvent: {title}\nEvent Time: {event_datetime.strftime('%Y-%m-%d %H:%M')}\nTime Left: {time_left}\nAlerts: {notify_schedule.capitalize()}")
+    
     # Clear the conversation state.
     countdowns_states.pop(user_id, None)
+    
+    # Import and call clear_flow_messages to delete extra messages from the flow.
+    from bot import clear_flow_messages
+    clear_flow_messages(chat_id, user_id)
 
 def save_countdown_in_db(user_id, title, event_datetime, notify_schedule):
     """
@@ -178,7 +184,6 @@ def delete_countdown(user_id, countdown_id):
     cursor.execute("DELETE FROM countdowns WHERE id = ? AND user_id = ?", (countdown_id, user_id))
     conn.commit()
     conn.close()
-
 
 
 # --------------------------------------------

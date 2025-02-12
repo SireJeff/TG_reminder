@@ -27,7 +27,7 @@ Reminder Addition Flow:
 5. For "Every X hours" or "Every X days", the state changes to 'awaiting_repeat_value' so the user can enter a number.
 6. Finally, the reminder is saved into the database with the provided title, trigger time, and repeat settings.
 7. Additional helper functions allow listing, updating, and deleting reminders.
-
+   
 All database operations use `get_db_connection()` from `database.py`.
 """
 
@@ -188,6 +188,7 @@ def handle_reminder_messages(bot, message):
 def finalize_reminder(bot, chat_id, user_id):
     """
     Finalizes the reminder by saving it into the database and confirming to the user.
+    Then, clears all extra flow messages.
     """
     data = reminders_states[user_id]['data']
     title = data.get('title')
@@ -201,6 +202,9 @@ def finalize_reminder(bot, chat_id, user_id):
                      f"Reminder added:\nTitle: {title}\nNext Trigger: {next_trigger_time.strftime('%Y-%m-%d %H:%M')}\nRepeat: {repeat_type} {repeat_value if repeat_value else ''}")
     # Clear the conversation state.
     reminders_states.pop(user_id, None)
+    # Clear extra flow messages so that the main menu is the last message.
+    from bot import clear_flow_messages
+    clear_flow_messages(chat_id, user_id)
 
 def save_reminder_in_db(user_id, title, next_trigger_time, repeat_type, repeat_value):
     """

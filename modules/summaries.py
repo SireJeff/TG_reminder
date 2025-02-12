@@ -1,12 +1,13 @@
-"""
-modules/summaries.py
+# modules/summaries.py
 
+"""
 This module implements the Summaries & Reports functionality.
 It generates a summary report for the user that includes:
   - Pending Tasks (with due dates)
   - Goals in progress (with frequency and next check date)
   - Upcoming Reminders (in the next 24 hours)
   - Countdowns (with computed time left until the event)
+  - Weekly Schedule events (recurring events added by the user)
   - Optionally, a random quote (if any exists for the user)
 
 Key functions:
@@ -29,6 +30,8 @@ SUMMARY_LABELS = {
         'no_reminders': "No reminders in the next 24 hours.",
         'countdowns': "**Countdowns:**",
         'no_countdowns': "No active countdowns.",
+        'weekly_schedule': "**Weekly Schedule:**",
+        'no_weekly_events': "No weekly events.",
         'quote_of_the_day': "**Quote of the Day:**",
         'event_passed': "Event passed",
         'daily_frequency': "Daily",
@@ -46,6 +49,8 @@ SUMMARY_LABELS = {
         'no_reminders': "یادآوری‌ای برای ۲۴ ساعت آینده وجود ندارد.",
         'countdowns': "**شمارش معکوس‌ها:**",
         'no_countdowns': "شمارش معکوسی فعال نیست.",
+        'weekly_schedule': "**برنامه هفتگی:**",
+        'no_weekly_events': "هیچ رویداد هفتگی وجود ندارد.",
         'quote_of_the_day': "**نقل قول روز:**",
         'event_passed': "رویداد گذشته است",
         'daily_frequency': "روزانه",
@@ -87,7 +92,7 @@ def generate_summary(user_id, user_lang='en'):
                 except Exception:
                     due_str = due_date
             else:
-                due_str = ( "No due date" if user_lang == 'en' else "بدون موعد" )
+                due_str = ("No due date" if user_lang == 'en' else "بدون موعد")
             summary_lines.append(f"- {title} (Due: {due_str})")
     else:
         summary_lines.append(labels['no_pending_tasks'])
@@ -106,7 +111,7 @@ def generate_summary(user_id, user_lang='en'):
             title = goal["title"]
             frequency = goal["frequency"]
             next_check_date = goal["next_check_date"]
-            # Localize frequency if you wish:
+            # Localize frequency if desired:
             freq_str = frequency
             if user_lang == 'fa':
                 if frequency == 'daily': freq_str = labels['daily_frequency']
@@ -115,9 +120,7 @@ def generate_summary(user_id, user_lang='en'):
                 elif frequency == 'seasonal': freq_str = labels['seasonal_frequency']
                 elif frequency == 'yearly': freq_str = labels['yearly_frequency']
             else:
-                # English: just capitalize
                 freq_str = freq_str.capitalize()
-
             if next_check_date:
                 try:
                     next_check_dt = datetime.strptime(next_check_date, "%Y-%m-%d %H:%M:%S")
@@ -175,12 +178,32 @@ def generate_summary(user_id, user_lang='en'):
                     days = delta.days
                     hours, rem = divmod(delta.seconds, 3600)
                     minutes, _ = divmod(rem, 60)
-                    time_left = f"{days}d {hours}h {minutes}m left" if user_lang == 'en' else f"{days}روز {hours}ساعت {minutes}دقیقه باقی‌مانده"
+                    time_left = (f"{days}d {hours}h {minutes}m left" if user_lang == 'en' 
+                                 else f"{days}روز {hours}ساعت {minutes}دقیقه باقی‌مانده")
             except Exception:
                 time_left = event_datetime
             summary_lines.append(f"- {title}: {time_left}")
     else:
         summary_lines.append(f"\n{labels['no_countdowns']}")
+    
+    # --- Weekly Schedule ---
+    cursor.execute("""
+        SELECT title, day_of_week, time_of_day 
+        FROM weekly_schedule 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC
+    """, (user_id,))
+    weekly_events = cursor.fetchall()
+    if weekly_events:
+        summary_lines.append(f"\n{labels['weekly_schedule']}")
+        for event in weekly_events:
+            title = event["title"]
+            day = event["day_of_week"]
+            time_of_day = event["time_of_day"]
+            # For simplicity, we display the event as: "Title on Day at Time"
+            summary_lines.append(f"- {title} on {day} at {time_of_day}")
+    else:
+        summary_lines.append(f"\n{labels['no_weekly_events']}")
     
     conn.close()
     
@@ -194,7 +217,7 @@ def generate_summary(user_id, user_lang='en'):
 
 def send_summary(bot, chat_id, user_id, user_lang='en'):
     """
-    Generates and sends the summary report to the user (in user_lang).
+    Generates and sends the summary report to the user (localized by user_lang).
     """
     summary_text = generate_summary(user_id, user_lang)
     bot.send_message(chat_id, summary_text, parse_mode="Markdown")

@@ -1,6 +1,4 @@
 """
-database.py
-
 This module initializes the SQLite database for the bot, creating all required tables:
 - users
 - tasks
@@ -8,6 +6,7 @@ This module initializes the SQLite database for the bot, creating all required t
 - reminders
 - countdowns
 - quotes
+- weekly_schedule
 
 Each table is created with all fields and constraints as per the architecture specification.
 """
@@ -42,12 +41,13 @@ def init_db():
       - reminders
       - countdowns
       - quotes
+      - weekly_schedule
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     
     # Create table: users
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             language TEXT NOT NULL DEFAULT 'en',
@@ -59,7 +59,7 @@ def init_db():
     ''')
     
     # Create table: tasks
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -73,7 +73,7 @@ def init_db():
     ''')
     
     # Create table: goals
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS goals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -87,7 +87,7 @@ def init_db():
     ''')
     
     # Create table: reminders
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -101,7 +101,7 @@ def init_db():
     ''')
     
     # Create table: countdowns
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS countdowns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -114,11 +114,24 @@ def init_db():
     ''')
     
     # Create table: quotes
-    cursor.execute('''
+    cursor.execute(''' 
         CREATE TABLE IF NOT EXISTS quotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             quote_text TEXT NOT NULL,
+            created_at DATETIME NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+        );
+    ''')
+    
+    # Create table: weekly_schedule
+    cursor.execute(''' 
+        CREATE TABLE IF NOT EXISTS weekly_schedule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            day_of_week TEXT NOT NULL,  -- e.g., "Monday", "Tuesday", etc.
+            time_of_day TEXT NOT NULL,  -- stored as "HH:MM"
             created_at DATETIME NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
         );

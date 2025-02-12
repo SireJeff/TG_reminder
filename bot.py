@@ -37,11 +37,45 @@ import telebot
 from telebot import types
 from datetime import datetime
 from database import get_db_connection, init_db
+from modules.weekly_schedule import start_add_weekly_event, weekly_states
+
+# -------------------------------
+# Global Flow Tracking
+# -------------------------------
+# This dictionary will track the message IDs of bot-sent messages for each user’s active flow.
+flow_messages = {}  # { user_id: [msg_id, msg_id, ...] }
+
+def tracked_send_message(chat_id, user_id, text, **kwargs):
+    """
+    Sends a message using bot.send_message and stores its message_id
+    in the global flow_messages dictionary.
+    """
+    msg = bot.send_message(chat_id, text, **kwargs)
+    if user_id not in flow_messages:
+        flow_messages[user_id] = []
+    flow_messages[user_id].append(msg.message_id)
+    return msg
+
+def clear_flow_messages(chat_id, user_id):
+    """
+    Deletes all messages that were tracked for the given user.
+    This helps ensure that when a flow finishes, the chat is cleaned up.
+    """
+    if user_id in flow_messages:
+        for msg_id in flow_messages[user_id]:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass  # ignore if the message cannot be deleted
+        flow_messages[user_id] = []
+
+
+
 
 # -------------------------------
 # Bot Initialization
 # -------------------------------
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # -------------------------------
@@ -306,6 +340,8 @@ def language_callback_handler(call):
 def onboard_continue_handler(call):
     user_id = call.from_user.id
     lang = user_states[user_id]['data'].get('language', 'en')
+    # Before continuing, clear all tracked flow messages.
+    clear_flow_messages(call.message.chat.id, user_id)
     # Continue with onboarding: set state to TIMEZONE and show timezone options.
     user_states[user_id]['state'] = STATE_TIMEZONE
     tz_markup = types.InlineKeyboardMarkup(row_width=2)
@@ -426,6 +462,8 @@ def onboarding_message_handler(message):
             conn.close()
             user_states[user_id]['data']['random_checkin'] = random_checkin
             user_states[user_id]['state'] = STATE_COMPLETED
+            # Clear all flow messages before showing main menu.
+            clear_flow_messages(message.chat.id, user_id)
             bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
             from modules.menu import send_main_menu
             send_main_menu(bot, message.chat.id, lang)

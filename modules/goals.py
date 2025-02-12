@@ -27,7 +27,6 @@ goals_states = {}
 def start_add_goal(bot, chat_id, user_id):
     """
     Initiates the add-goal conversation.
-    
     Call this when the user selects "Add Goal" from the Main Menu.
     """
     goals_states[user_id] = {
@@ -114,6 +113,10 @@ def handle_goal_callbacks(bot, call):
         )
         # Clear the conversation state.
         goals_states.pop(user_id, None)
+        
+        # Clear extra flow messages so that the main menu remains the last message.
+        from bot import clear_flow_messages
+        clear_flow_messages(chat_id, user_id)
     else:
         bot.answer_callback_query(call.id, "Unknown goal action.")
 
@@ -165,8 +168,7 @@ def delete_goal(user_id, goal_id):
     cursor.execute("DELETE FROM goals WHERE id = ? AND user_id = ?", (goal_id, user_id))
     conn.commit()
     conn.close()
-
-# --------------------------------------------
+#---------------------------
 # Integration / Revision Summary:
 #
 # 1. database.py (Chunk 1) initializes the DB and tables.

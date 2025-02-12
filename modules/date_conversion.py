@@ -1,5 +1,3 @@
-# modules/date_conversion.py
-
 """
 This module provides functions to parse date strings that may be in either
 the Gregorian calendar or the Jalali (Iranian) calendar. If a date string
@@ -7,8 +5,10 @@ has a year between 1300 and 1500, it is assumed to be in the Jalali calendar
 and will be converted to Gregorian using the jdatetime library.
 
 Supported date formats:
-    - Gregorian: "YYYY/MM/DD" or "YYYY-MM-DD" with optional time "HH:MM" (e.g., "2023/03/21 15:30")
-    - Jalali: "YYYY/MM/DD" or "YYYY-MM-DD" with optional time "HH:MM" (e.g., "1400/01/15 08:45")
+    - Gregorian: "YYYY/MM/DD" or "YYYY-MM-DD" with optional time "HH:MM" 
+      (e.g., "2023/03/21 15:30")
+    - Jalali: "YYYY/MM/DD" or "YYYY-MM-DD" with optional time "HH:MM" 
+      (e.g., "1400/01/15 08:45")
 """
 
 import datetime
@@ -35,14 +35,14 @@ def parse_date(date_str):
     Raises:
         ValueError: If the date_str is not in a valid format or conversion fails.
     """
-    # Split the input into date and time parts.
+    # Split input into date and time parts.
     parts = date_str.strip().split()
     date_part = parts[0]
     time_part = "00:00"
     if len(parts) > 1:
         time_part = parts[1]
     
-    # Standardize date delimiter by replacing '-' with '/'
+    # Standardize delimiter: replace '-' with '/'
     date_part = date_part.replace("-", "/")
     date_components = date_part.split("/")
     if len(date_components) < 3:
@@ -54,7 +54,7 @@ def parse_date(date_str):
         day = int(date_components[2])
     except Exception as e:
         raise ValueError("Date components must be integers") from e
-    
+
     # Parse time components.
     time_components = time_part.split(":")
     if len(time_components) < 2:
@@ -65,9 +65,8 @@ def parse_date(date_str):
     except Exception as e:
         raise ValueError("Time components must be integers") from e
 
-    # Determine if the date is Jalali or Gregorian based on the year.
+    # Determine if the date is Jalali or Gregorian.
     if 1300 <= year <= 1500:
-        # Assume Jalali date and convert it to Gregorian using jdatetime.
         try:
             jalali_date = jdatetime.date(year, month, day)
             gregorian_date = jalali_date.togregorian()  # returns a datetime.date
@@ -75,7 +74,6 @@ def parse_date(date_str):
         except Exception as e:
             raise ValueError("Error converting Jalali date to Gregorian") from e
     else:
-        # Assume Gregorian date.
         try:
             return datetime.datetime(year, month, day, hour, minute)
         except Exception as e:

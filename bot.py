@@ -38,11 +38,12 @@ Revisions in this file:
   - The clear_flow_messages function now attempts to delete both bot and user messages.
   - Logging was added to aid in debugging message deletions.
   - **New:** Integration of scheduler.py functions during onboarding to schedule summary reports, random check-ins, and due/upcoming summaries.
+  - **New:** When scheduling jobs, the user's chosen timezone (from the bot) is passed into the scheduler functions.
 """
 
 import telebot
 from telebot import types
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from messages import MESSAGES
 
@@ -89,6 +90,11 @@ init_scheduler()
 # -------------------------------
 # Helper Function: Schedule All Jobs for a User
 # -------------------------------
+# ... [imports and other code above unchanged] ...
+
+# -------------------------------
+# Helper Function: Schedule All Jobs for a User
+# -------------------------------
 def schedule_all_jobs(bot, user_id, chat_id):
     """
     Reads the user settings from the database and schedules:
@@ -96,25 +102,36 @@ def schedule_all_jobs(bot, user_id, chat_id):
       - Random check-ins (if set)
       - Due/upcoming summary (every 30 minutes)
       - Nightly summary at 21:00
+      - Weekly event reminders
+    The user's timezone is also retrieved and passed to the scheduler functions.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT summary_schedule, summary_time, random_checkin_max FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute(
+        "SELECT summary_schedule, summary_time, random_checkin_max, timezone FROM users WHERE user_id = ?",
+        (user_id,)
+    )
     user_settings = cursor.fetchone()
     conn.close()
     if not user_settings:
         return
 
-    summary_schedule = user_settings["summary_schedule"]
-    summary_time = user_settings["summary_time"]
-    random_checkin_max = user_settings["random_checkin_max"]
+    # Convert the sqlite3.Row to a dict so that we can use .get()
+    user_settings = dict(user_settings)
+    summary_schedule = user_settings.get("summary_schedule")
+    summary_time = user_settings.get("summary_time")
+    random_checkin_max = user_settings.get("random_checkin_max")
+    user_tz = user_settings.get("timezone", "UTC")
 
     if summary_schedule in ("daily", "custom"):
-        schedule_summary(bot, user_id, chat_id, summary_schedule, summary_time)
+        schedule_summary(bot, user_id, chat_id, summary_schedule, summary_time, user_tz)
     if random_checkin_max and int(random_checkin_max) > 0:
-        schedule_random_checkins(bot, user_id, chat_id, int(random_checkin_max))
-    schedule_due_and_upcoming_summary(bot, user_id, chat_id)
-    schedule_nightly_tomorrow_summary(bot, user_id, chat_id)
+        schedule_random_checkins(bot, user_id, chat_id, int(random_checkin_max), user_tz)
+    schedule_due_and_upcoming_summary(bot, user_id, chat_id, user_tz)
+    schedule_nightly_tomorrow_summary(bot, user_id, chat_id, user_tz)
+    schedule_weekly_event_reminders(bot, user_id, chat_id, user_tz)
+
+# ... [rest of your bot.py remains unchanged] ...
 
 # -------------------------------
 # Pre-defined Time Zone Choices
@@ -163,7 +180,7 @@ def handle_start(message):
         """, (user_id,))
         conn.commit()
     conn.close()
-    # You may opt to schedule jobs for returning users here if desired.
+    # (Optionally, you could schedule jobs for returning users here.)
     user_states[user_id] = {'state': STATE_LANGUAGE, 'data': {}}
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")

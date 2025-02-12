@@ -85,29 +85,50 @@ def schedule_summary(bot, user_id, chat_id, summary_schedule, summary_time, user
 
 def schedule_random_checkins(bot, user_id, chat_id, random_checkin_max, user_tz):
     """
-    Schedules random check-in jobs for the user during the day (8 AM to 9 PM)
-    using the user's timezone. The day is divided into equal intervals and one
-    check-in is scheduled randomly within each interval to make the timing more human-like.
+    Schedules random check-in jobs for the user during the period 8:00 to 21:00 in the user's timezone.
+    
+    - If current time is before 8:00: schedules for today (8:00 to 21:00).
+    - If current time is between 8:00 and 21:00: schedules for the remaining time today.
+    - If current time is after 21:00: schedules for tomorrow (8:00 to 21:00).
+    
+    The available time window is divided into equal intervals, and one random check-in is
+    scheduled within each interval.
     """
+    import pytz  # ensure pytz is imported
     tz = pytz.timezone(user_tz)
     now = datetime.now(tz)
-    start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
-    end_time = now.replace(hour=21, minute=0, second=0, microsecond=0)
+    
+    # Define today's start and end (8:00 and 21:00)
+    today_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    today_end = now.replace(hour=21, minute=0, second=0, microsecond=0)
+    
+    if now < today_start:
+        # Before 8 AM: schedule for today
+        start_time = today_start
+        end_time = today_end
+    elif now > today_end:
+        # After 9 PM: schedule for tomorrow
+        tomorrow = now + timedelta(days=1)
+        start_time = tomorrow.replace(hour=8, minute=0, second=0, microsecond=0)
+        end_time = tomorrow.replace(hour=21, minute=0, second=0, microsecond=0)
+    else:
+        # Now is between 8:00 and 21:00: schedule for the remaining time today.
+        start_time = now
+        end_time = today_end
+
     total_seconds = (end_time - start_time).total_seconds()
     if total_seconds <= 0 or random_checkin_max <= 0:
         return
 
-    # Divide the total period into equal intervals.
+    # Divide the available period into equal intervals.
     interval_length = total_seconds / random_checkin_max
 
     for i in range(random_checkin_max):
+        # Each interval starts at:
         interval_start = start_time + timedelta(seconds=i * interval_length)
-        # Pick a random offset within the current interval.
+        # Pick a random offset within the interval:
         random_offset_seconds = random.randint(0, int(interval_length))
         run_date = interval_start + timedelta(seconds=random_offset_seconds)
-        # If the computed time is in the past, adjust to a minute from now.
-        if run_date < now:
-            run_date = now + timedelta(minutes=1)
         run_date_utc = run_date.astimezone(pytz.utc)
         job_id = f"random_checkin_{user_id}_{i}"
         scheduler.add_job(

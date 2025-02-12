@@ -54,19 +54,28 @@ weekly_states = {}
 def start_add_weekly_event(bot, chat_id, user_id, user_lang='en'):
     """
     Initiates the add-weekly-event conversation.
+    The user's language is stored in the conversation state.
     """
-    weekly_states[user_id] = {'state': 'awaiting_title', 'data': {}}
+    weekly_states[user_id] = {
+        'state': 'awaiting_title',
+        'data': {'language': user_lang}
+    }
     tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['enter_title'])
 
-def handle_weekly_event_messages(bot, message, user_lang='en'):
+def handle_weekly_event_messages(bot, message, user_lang=None):
     """
     Handles text messages for the add-weekly-event conversation.
+    If no language is provided, it is retrieved from the conversation state.
     """
     user_id = message.from_user.id
     chat_id = message.chat.id
     if user_id not in weekly_states:
         return
 
+    # If not passed, get the language from the conversation state.
+    if user_lang is None:
+        user_lang = weekly_states[user_id]['data'].get('language', 'en')
+        
     # Track the user message for later cleanup.
     tracked_user_message(message)
     current_state = weekly_states[user_id]['state']
@@ -92,7 +101,7 @@ def handle_weekly_event_messages(bot, message, user_lang='en'):
             # Validate the time format.
             datetime.strptime(text, "%H:%M")
             data['time_of_day'] = text
-            # Save the event.
+            # Save the event in the database.
             save_weekly_event_in_db(user_id, data['title'], data['day_of_week'], text)
             tracked_send_message(chat_id, user_id, WEEKLY_MSG[user_lang]['event_added'])
             weekly_states.pop(user_id, None)
@@ -105,6 +114,7 @@ def handle_weekly_event_messages(bot, message, user_lang='en'):
 def handle_weekly_event_callbacks(bot, call):
     """
     Handles callback queries for the weekly event creation flow.
+    Uses the language stored in the conversation state.
     """
     user_id = call.from_user.id
     chat_id = call.message.chat.id
@@ -118,7 +128,7 @@ def handle_weekly_event_callbacks(bot, call):
         day = call.data.split("week_day_")[1]
         data['day_of_week'] = day
         weekly_states[user_id]['state'] = 'awaiting_time'
-        lang = get_user_lang(user_id)
+        lang = data.get('language', 'en')
         tracked_send_message(chat_id, user_id, WEEKLY_MSG[lang]['select_time'])
         bot.answer_callback_query(call.id, f"Day set to {day}")
     else:
@@ -176,13 +186,3 @@ def delete_weekly_event(user_id, event_id):
     cursor.execute("DELETE FROM weekly_schedule WHERE id = ? AND user_id = ?", (event_id, user_id))
     conn.commit()
     conn.close()
-
-def get_user_lang(user_id):
-    """
-    Helper function to retrieve the user's language from user_states.
-    Fallback to English if not set.
-    """
-    from bot import user_states  # Local import to avoid circular dependency issues.
-    if user_id in user_states and 'language' in user_states[user_id]['data']:
-        return user_states[user_id]['data']['language']
-    return 'en'

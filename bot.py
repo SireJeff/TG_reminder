@@ -33,8 +33,8 @@ Ensure that the following modules/files are available:
 Replace "YOUR_TELEGRAM_BOT_TOKEN" with your actual bot token.
 
 Revisions in this file:
-  - All messages sent as part of multi‐step flows (onboarding, summary schedule, etc.) now use tracked_send_message.
-  - In addition, all user-sent messages that are part of these flows are tracked via tracked_user_message.
+  - All messages sent as part of multi‐step flows now use tracked_send_message.
+  - All user-sent messages that are part of these flows are tracked via tracked_user_message.
   - The clear_flow_messages function now attempts to delete both bot and user messages.
   - Logging was added to aid in debugging message deletions.
 """
@@ -51,15 +51,18 @@ logger = logging.getLogger(__name__)
 
 from database import get_db_connection, init_db
 from modules.weekly_schedule import start_add_weekly_event, weekly_states
-# Old line (to be removed):
-# from bot import tracked_send_message, tracked_user_message, clear_flow_messages
-
-# New import:
 from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages, set_bot
 
 # -------------------------------
-# Global Flow Tracking
+# Global Flow Tracking & State Definitions
 # -------------------------------
+STATE_LANGUAGE = "language"
+STATE_TIMEZONE = "timezone"      # Handled via inline buttons
+STATE_SUMMARY_SCHEDULE = "summary_schedule"
+STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
+STATE_RANDOM_CHECKIN = "random_checkin"
+STATE_COMPLETED = "completed"
+user_states = {}  # Global dictionary to store onboarding conversation state per user.
 
 # -------------------------------
 # Bot Initialization
@@ -67,8 +70,6 @@ from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_
 BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 set_bot(bot)
-
-
 
 # -------------------------------
 # Pre-defined Time Zone Choices
@@ -87,16 +88,8 @@ TIMEZONE_CHOICES = [
 ]
 
 # -------------------------------
-# Onboarding State Definitions
+# Weekly Schedule Handlers
 # -------------------------------
-STATE_LANGUAGE = "language"
-STATE_TIMEZONE = "timezone"      # Handled via inline buttons
-STATE_SUMMARY_SCHEDULE = "summary_schedule"
-STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
-STATE_RANDOM_CHECKIN = "random_checkin"
-STATE_COMPLETED = "completed"
-user_states = {}  # Global dictionary to store onboarding conversation state per user.
-
 @bot.message_handler(func=lambda message: message.from_user.id in weekly_states)
 def message_weekly_handler(message):
     from modules.weekly_schedule import handle_weekly_event_messages
@@ -126,33 +119,26 @@ def handle_start(message):
         conn.commit()
     conn.close()
     user_states[user_id] = {'state': STATE_LANGUAGE, 'data': {}}
-    # Prompt for language selection using tracked_send_message.
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
     btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
     markup.add(btn_english, btn_farsi)
-    # Since language isn't set yet, we use the English welcome message.
     tracked_send_message(message.chat.id, user_id, MESSAGES['en']['welcome'], reply_markup=markup)
 
 # -------------------------------
-# /help Command Handler
+# /help and /info Command Handlers
 # -------------------------------
 @bot.message_handler(commands=['help'])
 def handle_help(message):
     user_id = message.from_user.id
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
-    help_text = MESSAGES[lang]['help']
-    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+    bot.send_message(message.chat.id, MESSAGES[lang]['help'], parse_mode="Markdown")
 
-# -------------------------------
-# /info Command Handler
-# -------------------------------
 @bot.message_handler(commands=['info'])
 def handle_info(message):
     user_id = message.from_user.id
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
-    info_text = MESSAGES[lang]['info']
-    bot.send_message(message.chat.id, info_text, parse_mode="Markdown")
+    bot.send_message(message.chat.id, MESSAGES[lang]['info'], parse_mode="Markdown")
 
 # -------------------------------
 # Language Selection Callback Handler
@@ -169,14 +155,13 @@ def language_callback_handler(call):
     conn.commit()
     conn.close()
     user_states[user_id]['data']['language'] = selected_lang
-    # Send the detailed onboarding info message using tracked_send_message.
     help_msg = MESSAGES[selected_lang]['onboard_info']
     markup = types.InlineKeyboardMarkup()
     btn_continue = types.InlineKeyboardButton(text=MESSAGES[selected_lang]['onboard_continue'], callback_data="onboard_continue")
     markup.add(btn_continue)
     tracked_send_message(call.message.chat.id, user_id, help_msg, reply_markup=markup)
-    localized_text = MESSAGES[selected_lang]['language_set'].format(selected_lang)
-    bot.answer_callback_query(call.id, localized_text)
+    # Using a literal confirmation string here.
+    bot.answer_callback_query(call.id, "Language set.")
 
 # -------------------------------
 # Onboard Continue Callback Handler
@@ -185,9 +170,7 @@ def language_callback_handler(call):
 def onboard_continue_handler(call):
     user_id = call.from_user.id
     lang = user_states[user_id]['data'].get('language', 'en')
-    # Before continuing, clear all tracked flow messages (bot & user).
     clear_flow_messages(call.message.chat.id, user_id)
-    # Continue with onboarding: set state to TIMEZONE and show timezone options.
     user_states[user_id]['state'] = STATE_TIMEZONE
     tz_markup = types.InlineKeyboardMarkup(row_width=2)
     for label, tz_value in TIMEZONE_CHOICES:
@@ -215,9 +198,9 @@ def timezone_callback_handler(call):
     lang = user_states[user_id]['data'].get('language', 'en')
     bot.answer_callback_query(call.id, MESSAGES[lang]['set_timezone'].format(tz_value))
     summary_markup = types.InlineKeyboardMarkup()
-    btn_daily = types.InlineKeyboardButton(text=MESSAGES[lang]['summary_daily'], callback_data="set_summary_daily")
-    btn_custom = types.InlineKeyboardButton(text=MESSAGES[lang]['summary_custom'], callback_data="set_summary_custom")
-    btn_none = types.InlineKeyboardButton(text=MESSAGES[lang]['summary_none'], callback_data="set_summary_none")
+    btn_daily = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_daily', "Daily"), callback_data="set_summary_daily")
+    btn_custom = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_custom', "Every X hours"), callback_data="set_summary_custom")
+    btn_none = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_none', "None"), callback_data="set_summary_none")
     summary_markup.add(btn_daily, btn_custom, btn_none)
     tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['select_summary'], reply_markup=summary_markup)
 
@@ -236,12 +219,12 @@ def summary_callback_handler(call):
     if selection == "daily":
         user_states[user_id]['data']['summary_schedule'] = 'daily'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
-        bot.answer_callback_query(call.id, MESSAGES[lang]['daily_summary_selected'])
+        bot.answer_callback_query(call.id, "Daily summary selected.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_daily_time'])
     elif selection == "custom":
         user_states[user_id]['data']['summary_schedule'] = 'custom'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
-        bot.answer_callback_query(call.id, MESSAGES[lang]['custom_summary_interval_selected'])
+        bot.answer_callback_query(call.id, "Custom summary interval selected.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_custom_interval'])
     elif selection == "none":
         user_states[user_id]['data']['summary_schedule'] = 'disabled'
@@ -251,7 +234,7 @@ def summary_callback_handler(call):
         conn.commit()
         conn.close()
         user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-        bot.answer_callback_query(call.id, MESSAGES[lang]['no_summary_will_be_sent'])
+        bot.answer_callback_query(call.id, "No summary will be sent.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
     else:
         bot.answer_callback_query(call.id, "Unhandled summary callback.")
@@ -262,7 +245,6 @@ def summary_callback_handler(call):
 @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('state') in [STATE_SUMMARY_TIME, STATE_RANDOM_CHECKIN])
 def onboarding_message_handler(message):
     user_id = message.from_user.id
-    # Track the user-sent message as part of the flow.
     tracked_user_message(message)
     current_state = user_states[user_id]['state']
     text = message.text.strip()
@@ -304,7 +286,6 @@ def onboarding_message_handler(message):
             conn.close()
             user_states[user_id]['data']['random_checkin'] = random_checkin
             user_states[user_id]['state'] = STATE_COMPLETED
-            # Clear all flow messages (both bot and user) before showing main menu.
             clear_flow_messages(message.chat.id, user_id)
             bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
             from modules.menu import send_main_menu
@@ -394,22 +375,23 @@ def message_quote_handler(message):
 def manage_items_menu(bot, chat_id, user_id):
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     markup = types.InlineKeyboardMarkup()
-    btn_tasks = types.InlineKeyboardButton(text="Manage Tasks", callback_data="manage_tasks")
-    btn_reminders = types.InlineKeyboardButton(text="Manage Reminders", callback_data="manage_reminders")
-    btn_goals = types.InlineKeyboardButton(text="Manage Goals", callback_data="manage_goals")
-    btn_countdowns = types.InlineKeyboardButton(text="Manage Countdowns", callback_data="manage_countdowns")
-    btn_back = types.InlineKeyboardButton(text=MESSAGES[lang]['back_to_main_menu'], callback_data="back_main")
+    btn_tasks = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_tasks', "Manage Tasks"), callback_data="manage_tasks")
+    btn_reminders = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_reminders', "Manage Reminders"), callback_data="manage_reminders")
+    btn_goals = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_goals', "Manage Goals"), callback_data="manage_goals")
+    btn_countdowns = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_countdowns', "Manage Countdowns"), callback_data="manage_countdowns")
+    btn_back = types.InlineKeyboardButton(text=MESSAGES[lang].get('back_to_main_menu', "Back to Main Menu"), callback_data="back_main")
     markup.row(btn_tasks, btn_reminders)
     markup.row(btn_goals, btn_countdowns)
     markup.add(btn_back)
-    bot.send_message(chat_id, MESSAGES[lang]['manage_items_menu'], reply_markup=markup)
+    # Send using tracked_send_message for flow clearance.
+    tracked_send_message(chat_id, user_id, MESSAGES[lang].get('manage_items_menu', "Manage Items:\nSelect a category to view and delete items:"), reply_markup=markup)
 
 def manage_tasks(bot, chat_id, user_id):
     from modules.tasks import list_tasks, delete_task
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     tasks = list_tasks(user_id)
     if not tasks:
-        bot.send_message(chat_id, MESSAGES[lang]['no_tasks_found'])
+        bot.send_message(chat_id, MESSAGES[lang].get('no_tasks_found', "No tasks found."))
         return
     for task in tasks:
         task_id = task["id"]
@@ -425,7 +407,7 @@ def manage_reminders(bot, chat_id, user_id):
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     reminders = list_reminders(user_id)
     if not reminders:
-        bot.send_message(chat_id, MESSAGES[lang]['no_reminders_found'])
+        bot.send_message(chat_id, MESSAGES[lang].get('no_reminders_found', "No reminders found."))
         return
     for rem in reminders:
         rem_id = rem["id"]
@@ -441,7 +423,7 @@ def manage_goals(bot, chat_id, user_id):
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     goals = list_goals(user_id)
     if not goals:
-        bot.send_message(chat_id, MESSAGES[lang]['no_goals_found'])
+        bot.send_message(chat_id, MESSAGES[lang].get('no_goals_found', "No goals found."))
         return
     for goal in goals:
         goal_id = goal["id"]
@@ -456,7 +438,7 @@ def manage_countdowns(bot, chat_id, user_id):
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     countdowns = list_countdowns(user_id)
     if not countdowns:
-        bot.send_message(chat_id, MESSAGES[lang]['no_countdowns_found'])
+        bot.send_message(chat_id, MESSAGES[lang].get('no_countdowns_found', "No countdowns found."))
         return
     for cd in countdowns:
         cd_id = cd["id"]
@@ -473,12 +455,21 @@ def manage_countdowns(bot, chat_id, user_id):
 def settings_menu(bot, chat_id, user_id):
     lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     markup = types.InlineKeyboardMarkup()
-    btn_change_lang = types.InlineKeyboardButton(text="Change Language", callback_data="settings_change_lang")
-    btn_change_tz = types.InlineKeyboardButton(text="Change Timezone", callback_data="settings_change_tz")
-    btn_back = types.InlineKeyboardButton(text=MESSAGES[lang]['back_to_main_menu'], callback_data="back_main")
+    btn_change_lang = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('change_language', "Change Language"),
+        callback_data="settings_change_lang"
+    )
+    btn_change_tz = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('change_timezone', "Change Timezone"),
+        callback_data="settings_change_tz"
+    )
+    btn_back = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('back_to_main_menu', "Back to Main Menu"),
+        callback_data="back_main"
+    )
     markup.row(btn_change_lang, btn_change_tz)
     markup.add(btn_back)
-    bot.send_message(chat_id, MESSAGES[lang]['settings'], reply_markup=markup)
+    tracked_send_message(chat_id, user_id, MESSAGES[lang].get('settings', "Settings:"), reply_markup=markup)
 
 # -------------------------------
 # Callback Handlers for Manage Items and Settings
@@ -506,16 +497,16 @@ def manage_callback_handler(call):
         btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
         btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
         markup.add(btn_english, btn_farsi)
-        bot.send_message(chat_id, MESSAGES[lang]['select_language'], reply_markup=markup)
+        tracked_send_message(chat_id, user_id, MESSAGES[lang].get('select_language', "Please select your language:"), reply_markup=markup)
     elif data == "settings_change_tz":
         user_states[user_id]['state'] = STATE_TIMEZONE
         tz_markup = types.InlineKeyboardMarkup(row_width=2)
         for label, tz_value in TIMEZONE_CHOICES:
             tz_btn = types.InlineKeyboardButton(text=label, callback_data=f"set_tz_{tz_value}")
             tz_markup.add(tz_btn)
-        bot.send_message(chat_id, MESSAGES[lang]['select_timezone'], reply_markup=tz_markup)
+        tracked_send_message(chat_id, user_id, MESSAGES[lang].get('select_timezone', "Please select your timezone:"), reply_markup=tz_markup)
     else:
-        bot.answer_callback_query(call.id, MESSAGES[lang]['unknown_menu_option'])
+        bot.answer_callback_query(call.id, MESSAGES[lang].get('unknown_menu_option', "Unknown menu option selected."))
 
 # -------------------------------
 # Callback Handlers for Deletion Actions
@@ -528,8 +519,9 @@ def delete_task_handler(call):
     task_id = int(call.data.split("delete_task_")[1])
     from modules.tasks import delete_task
     delete_task(user_id, task_id)
-    bot.answer_callback_query(call.id, MESSAGES[lang]['task_deleted'])
-    bot.send_message(chat_id, MESSAGES[lang]['task_deleted_confirmation'])
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('task_deleted', "Task deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('task_deleted_confirmation', "Task has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_reminder_"))
 def delete_reminder_handler(call):
@@ -539,8 +531,9 @@ def delete_reminder_handler(call):
     rem_id = int(call.data.split("delete_reminder_")[1])
     from modules.reminders import delete_reminder
     delete_reminder(user_id, rem_id)
-    bot.answer_callback_query(call.id, MESSAGES[lang]['reminder_deleted'])
-    bot.send_message(chat_id, MESSAGES[lang]['reminder_deleted_confirmation'])
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('reminder_deleted', "Reminder deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('reminder_deleted_confirmation', "Reminder has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_goal_"))
 def delete_goal_handler(call):
@@ -550,8 +543,9 @@ def delete_goal_handler(call):
     goal_id = int(call.data.split("delete_goal_")[1])
     from modules.goals import delete_goal
     delete_goal(user_id, goal_id)
-    bot.answer_callback_query(call.id, MESSAGES[lang]['goal_deleted'])
-    bot.send_message(chat_id, MESSAGES[lang]['goal_deleted_confirmation'])
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('goal_deleted', "Goal deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('goal_deleted_confirmation', "Goal has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_countdown_"))
 def delete_countdown_handler(call):
@@ -561,8 +555,9 @@ def delete_countdown_handler(call):
     cd_id = int(call.data.split("delete_countdown_")[1])
     from modules.countdowns import delete_countdown
     delete_countdown(user_id, cd_id)
-    bot.answer_callback_query(call.id, MESSAGES[lang]['countdown_deleted'])
-    bot.send_message(chat_id, MESSAGES[lang]['countdown_deleted_confirmation'])
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('countdown_deleted', "Countdown deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('countdown_deleted_confirmation', "Countdown has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 # -------------------------------
 # Integration: Weekly Schedule Module
@@ -609,7 +604,7 @@ def callback_menu_handler(call):
     elif data == "menu_settings":
         settings_menu(bot, chat_id, user_id)
     else:
-        bot.send_message(chat_id, MESSAGES[lang]['unknown_menu_option'])
+        bot.send_message(chat_id, MESSAGES[lang].get('unknown_menu_option', "Unknown menu option selected."))
 
 # -------------------------------
 # Integration: Main Menu from modules/menu.py

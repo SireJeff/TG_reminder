@@ -150,6 +150,18 @@ MESSAGES = {
         "language_set": "Language set to {}",
         "summary_daily": "Daily",
         "summary_custom": "Every X hours",
+        "change_language": "Change Language",
+        "change_timezone": "Change Timezone",
+        "settings": "Settings:",
+        "back_to_main_menu": "Back to Main Menu",
+        "manage_tasks": "Manage Tasks",
+        "manage_reminders": "Manage Reminders",
+        "manage_goals": "Manage Goals",
+        "manage_countdowns": "Manage Countdowns",
+        "manage_items_menu": "Manage Items:\nSelect a category to view and delete items:",
+        "back_to_main_menu": "Back to Main Menu"
+
+
 
 
     },
@@ -300,6 +312,16 @@ MESSAGES = {
         "language_set": "زبان به {} تنظیم شد",
         "summary_daily": "روزانه",
         "summary_custom": "هر X ساعت",
+        "change_language": "تغییر زبان",
+        "change_timezone": "تغییر منطقه زمانی",
+        "settings": "تنظیمات:",
+        "back_to_main_menu": "بازگشت به منوی اصلی",
+        "manage_tasks": "مدیریت وظایف",
+        "manage_reminders": "مدیریت یادآوری‌ها",
+        "manage_goals": "مدیریت اهداف",
+        "manage_countdowns": "مدیریت شمارش معکوس",
+        "manage_items_menu": "مدیریت موارد:\nیک دسته را برای مشاهده و حذف موارد انتخاب کنید:",
+        "back_to_main_menu": "بازگشت به منوی اصلی"
 
         
     }

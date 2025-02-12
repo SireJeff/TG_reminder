@@ -2,7 +2,7 @@
 bot.py
 
 This is the main entry point for the bot. It integrates:
-  - Onboarding (multilingual language selection, onboarding info, time zone selection via inline buttons, summary schedule, random check-in)
+  - Onboarding (multilingual language selection, detailed onboarding info, time zone selection via inline buttons, summary schedule, random check-in)
   - Main Menu & Navigation
   - Tasks Module
   - Goals Module
@@ -11,7 +11,8 @@ This is the main entry point for the bot. It integrates:
   - Random Check-Ins Module
   - Summaries & Reports Module
   - Quotes Module
-  - Help Command (detailed explanation with emojis)
+  - Help Command (brief instructions with emojis)
+  - Info Command (deep, detailed explanation of every action, button, and input)
   - Manage Items (view and delete tasks, reminders, goals, countdowns)
   - Settings (change language and timezone)
 
@@ -56,30 +57,71 @@ MESSAGES = {
         'onboarding_complete': "Onboarding complete! Welcome to Remindino! 🎉",
         'help': (
             "🤖 *Remindino Bot Help*\n\n"
-            "Welcome to Remindino, your smart digital planner! Whether you're a student managing your class schedule or a professional tracking deadlines, this bot is here to help you stay organized.\n\n"
-            "📚 *Features:*\n"
-            "• *Weekly Schedule:* Manage your fixed weekly events—your personal timetable for classes or meetings.\n"
-            "• *Task Reminders:* Set reminders for assignments, projects, or daily tasks. For example, 'Submit your project by 2023-04-15 23:59 📅'.\n"
-            "• *Countdowns:* Create countdowns for upcoming quizzes, exams, or important events. See exactly how much time is left ⏰.\n"
-            "• *Random Check-Ins:* Receive friendly prompts like, 'Anything new to add?' at random times.\n"
-            "• *Summaries & Reports:* Get a daily summary of your tasks and events so you never miss a beat!\n"
-            "• *Quotes:* Add motivational quotes to brighten your day 🌟.\n\n"
-            "⚙️ *Manage Items:* Easily view and delete your tasks, reminders, goals, and countdowns.\n"
-            "⚙️ *Settings:* Change your language and timezone anytime.\n\n"
-            "💡 *How to Get Started:*\n"
-            "1. Type /start to begin. You'll be guided through language and timezone selection using inline buttons. For instance, select 'Tehran' if you're in Iran or 'New York' if you're on the East Coast.\n"
-            "2. After onboarding, you'll see the main menu. Tap an option (e.g., 'Add Task', 'Add Countdown', etc.) to start.\n"
-            "3. When entering dates, you can use either the Western (e.g., 2023/04/15) or Iranian calendar (e.g., 1402/01/26). The bot detects and converts Iranian dates automatically.\n\n"
-            "😊 *Enjoy using Remindino!* If you need these instructions again, just type /help."
+            "Use /help for a quick overview or /info for a detailed explanation of all features.\n\n"
+            "Key features include:\n"
+            "• *Tasks*: Add, update, and delete tasks with optional due dates.\n"
+            "• *Goals*: Set long-term goals with daily, weekly, monthly, seasonal, or yearly frequencies.\n"
+            "• *Reminders*: Get notified about important events – choose preset times or enter a custom date.\n"
+            "• *Countdowns*: See how much time remains until an event (like an exam or meeting).\n"
+            "• *Random Check-Ins*: Receive friendly prompts throughout the day.\n"
+            "• *Summaries*: Receive daily summaries of your tasks, goals, reminders, and countdowns.\n"
+            "• *Quotes*: Add motivational quotes to inspire you.\n\n"
+            "You can manage your items and adjust settings (language, timezone) via the main menu.\n\n"
+            "For detailed explanations of each feature, try the /info command. 😊"
+        ),
+        'info': (
+            "🤖 *Detailed Info for Remindino*\n\n"
+            "Welcome! Here’s a deep dive into how every part of Remindino works:\n\n"
+            "1. *Onboarding*: \n"
+            "   - When you type /start, you'll first choose your language (English or فارسی) using inline buttons. "
+            "     This sets the language for all messages and buttons. 🌐\n"
+            "   - After selecting your language, you'll receive a detailed info message explaining all the bot's features. "
+            "     For example, you'll learn that Remindino can help you add tasks, set reminders, manage goals, and more. "
+            "     Then, press the 'Let's go' (or 'بزن بریم') button to begin.\n\n"
+            "2. *Time Zone Selection*: \n"
+            "   - Next, you'll select your timezone from a set of popular options (like Tehran, London, New York, etc.). "
+            "     This ensures that all scheduled times (due dates, reminders, etc.) are correctly converted to your local time. ⏰\n\n"
+            "3. *Summary Settings*: \n"
+            "   - You'll be asked how you want to receive daily summaries. You can choose daily, a custom interval, or disable them. "
+            "     These summaries provide an overview of your pending tasks, active goals, upcoming reminders, and countdowns. 📋\n\n"
+            "4. *Main Menu*: \n"
+            "   - Once onboarding is complete, you'll see the main menu. Here are what the buttons do:\n"
+            "     • *Add Task*: Create new tasks with optional due dates. For example, you might add a task 'Submit assignment' "
+            "       and set the due date to today or tomorrow. ✅\n"
+            "     • *Add Goal*: Set long-term goals (like 'Exercise daily') and choose how frequently you want to check on them. 🎯\n"
+            "     • *Add Reminder*: Set reminders for important events. You can use preset times (e.g., in 1 hour, 2 hours, or tomorrow) "
+            "       or enter a custom date and time. 🔔\n"
+            "     • *Add Countdown*: Create countdowns for events such as exams or meetings. You'll see how much time is left until the event. ⏳\n"
+            "     • *View Summary*: Get a full report of your tasks, goals, reminders, and countdowns for the day. 📊\n"
+            "     • *Manage Items*: View and delete your existing tasks, reminders, goals, and countdowns. 🗑\n"
+            "     • *Quotes*: Add motivational quotes that you can include in your daily summary. 🌟\n"
+            "     • *Settings*: Change your language or timezone at any time. ⚙️\n\n"
+            "5. *Additional Commands*:\n"
+            "   - /help: Provides a brief overview of the bot's features and usage.\n"
+            "   - /info: (This command) Provides a detailed explanation of every feature, button, and input with real-life examples and emojis.\n\n"
+            "This comprehensive guide should help you understand how to get the most out of Remindino. "
+            "If you have any questions, simply refer back to /info. Enjoy organizing your life with Remindino! 😊"
         ),
         'onboard_info': (
-            "Here's a quick overview of how Remindino works:\n"
-            "• You can add tasks, goals, reminders, and countdowns to keep track of your schedule.\n"
-            "• Dates can be entered in either Western or Iranian formats, and they will be automatically converted.\n"
-            "• Use the main menu to navigate between features.\n\n"
-            "Press 'Let's go' to begin your onboarding!"
+            "Hey there! I'm Remindino – your friendly digital assistant to help you organize your life! 🎉\n\n"
+            "I can help you add tasks, set reminders, track countdowns for exams or events, and even provide daily summaries of everything on your schedule. Whether you're a student juggling classes or a professional managing deadlines, I've got your back! 😎\n\n"
+            "You can enter dates in either the Western format (e.g., 2023/04/15) or the Iranian format (e.g., 1402/01/26), and I'll automatically convert them for you. Cool, right? 📅✨\n\n"
+                        "• *Weekly Schedule:* Manage your fixed weekly events — your personal timetable for classes or meetings.\n\n"
+            "• *Task Reminders:* Set reminders for assignments, projects, or daily tasks. For example, 'Submit your project by 2023-04-15 23:59 📅'.\n\n"
+            "• *Countdowns:* Create countdowns for upcoming quizzes, exams, or important events. See exactly how much time is left ⏰.\n\n"
+            "• *Random Check-Ins:* Receive friendly prompts like 'Anything new to add?' at random times.\n\n"
+            "• *Summaries & Reports:* Get a daily summary of your tasks and events so you never miss a beat!\n\n"
+            "• *Quotes:* Add motivational quotes to brighten your day 🌟.\n\n"
+            "⚙️ *Manage Items:* Easily view and delete your tasks, reminders, goals, and countdowns.\n\n"
+            "⚙️ *Settings:* Change your language and timezone anytime.\n\n"
+            "💡 *How to Get Started:*\n\n"
+            "1. Type /start to begin. You'll be guided through language and timezone selection using inline buttons.\n"
+            "2. After onboarding, you'll see the main menu. Tap an option (e.g., 'Add Task', 'Add Countdown', etc.) to start.\n"
+            "3. Dates can be entered in either the Western (e.g., 2023/04/15) or Iranian calendar (e.g., 1402/01/26); I'll handle the conversion automatically.\n\n"
+            "😊 *Enjoy using Remindino!* If you need these instructions again, just type /help or /info.\n\n"
+            "When you're ready, press 'بزن بریم' to start your onboarding!"
         ),
-        'onboard_continue': "Let's go"
+        'onboard_continue': "Let's go",
     },
     'fa': {
         'welcome': "به ریمایندینو خوش آمدید! 🤖\nلطفاً زبان خود را انتخاب کنید:",
@@ -92,28 +134,63 @@ MESSAGES = {
         'onboarding_complete': "فرایند راه‌اندازی کامل شد! به ریمایندینو خوش آمدید! 🎉",
         'help': (
             "🤖 *راهنمای ریمایندینو*\n\n"
-            "به ریمایندینو خوش آمدید، برنامه‌ریز دیجیتال هوشمند شما! چه دانشجو باشید که برنامه کلاس‌های خود را مدیریت می‌کنید و چه حرفه‌ای که به دنبال پیگیری مهلت‌ها هستید، این بات برای کمک به شما در سازماندهی امور طراحی شده است.\n\n"
+            "به ریمایندینو خوش آمدید، دستیار دیجیتال شما برای سازماندهی زندگی! چه دانشجو باشید و چه حرفه‌ای، این بات به شما کمک می‌کند تا برنامه‌ها و وظایف خود را به خوبی مدیریت کنید.\n\n"
             "📚 *امکانات:*\n"
-            "• *برنامه هفتگی:* رویدادهای ثابت هفتگی خود را مدیریت کنید — همانند برنامه کلاس‌های روزانه یا جلسات کاری شما.\n"
-            "• *یادآوری وظایف:* یادآوری‌هایی برای تکالیف، پروژه‌ها یا وظایف روزانه تنظیم کنید. مثلاً، 'پروژه خود را تا تاریخ 2023-04-15 23:59 ارسال کنید 📅'.\n"
-            "• *شمارش معکوس:* شمارش معکوس برای آزمون‌ها، امتحانات یا رویدادهای مهم ایجاد کنید و دقیقاً ببینید چقدر زمان باقی مانده است ⏰.\n"
-            "• *بررسی‌های تصادفی:* به صورت تصادفی پیام‌هایی مانند 'چیزی برای اضافه کردن دارید؟' دریافت کنید.\n"
-            "• *خلاصه و گزارش‌ها:* خلاصه روزانه‌ای از وظایف و رویدادهای خود دریافت کنید تا هیچ اتفاقی از دست ندهید!\n"
-            "• *نقل قول‌ها:* نقل قول‌های انگیزشی اضافه کنید تا در روزهای شلوغ روحیه‌تان بالا بماند 🌟.\n\n"
+            "• *برنامه هفتگی:* رویدادهای ثابت هفتگی خود را مدیریت کنید، مانند برنامه کلاس‌های روزانه یا جلسات کاری.\n"
+            "• *یادآوری وظایف:* یادآوری‌هایی برای تکالیف، پروژه‌ها یا وظایف روزانه تنظیم کنید. مثلاً، 'پروژه‌تان را تا تاریخ 2023-04-15 23:59 ارسال کنید 📅'.\n"
+            "• *شمارش معکوس:* شمارش معکوس برای آزمون‌ها، امتحانات یا رویدادهای مهم ایجاد کنید تا دقیقاً ببینید چقدر زمان باقی مانده است ⏰.\n"
+            "• *بررسی‌های تصادفی:* پیام‌های دوستانه‌ای مانند 'چیزی برای اضافه کردن دارید؟' به صورت تصادفی دریافت کنید.\n"
+            "• *خلاصه و گزارش‌ها:* خلاصه‌ای از وظایف و رویدادهای روزانه دریافت کنید تا هیچ اتفاقی از دست ندهید!\n"
+            "• *نقل قول‌ها:* نقل قول‌های انگیزشی اضافه کنید تا روحیه‌تان بالا بماند 🌟.\n\n"
             "⚙️ *مدیریت موارد:* به راحتی وظایف، یادآوری‌ها، اهداف و شمارش معکوس‌های خود را مشاهده و حذف کنید.\n"
-            "⚙️ *تنظیمات:* هر زمان که خواستید زبان یا منطقه زمانی خود را تغییر دهید.\n\n"
+            "⚙️ *تنظیمات:* هر زمان که خواستید، زبان یا منطقه زمانی خود را تغییر دهید.\n\n"
             "💡 *چگونه شروع کنیم:*\n"
-            "1. دستور /start را تایپ کنید. شما از طریق دکمه‌های اینلاین، زبان (انگلیسی یا فارسی) و منطقه زمانی خود را انتخاب خواهید کرد. مثلاً 'Tehran' را انتخاب کنید اگر در ایران هستید یا 'New York' را اگر در شرق آمریکا هستید.\n"
-            "2. پس از فرایند راه‌اندازی، منوی اصلی نمایش داده می‌شود. گزینه‌ای مانند 'افزودن وظیفه' یا 'افزودن شمارش معکوس' را لمس کنید.\n"
-            "3. هنگام وارد کردن تاریخ، می‌توانید از تقویم غربی (مثلاً 2023/04/15) یا ایرانی (مثلاً 1402/01/26) استفاده کنید. بات به‌طور خودکار تشخیص داده و تاریخ ایرانی را تبدیل می‌کند.\n\n"
-            "😊 *از ریمایندینو لذت ببرید!* برای مشاهده دوباره این دستورالعمل‌ها، تنها /help را تایپ کنید."
+            "1. دستور /start را تایپ کنید. ابتدا از طریق دکمه‌های اینلاین، زبان (انگلیسی یا فارسی) خود را انتخاب می‌کنید.\n"
+            "2. سپس یک پیام راهنمای جامع (با توضیحات کامل و مثال‌های واقعی) برای شما ارسال می‌شود. برای مشاهده جزئیات، دستور /info را هم می‌توانید تایپ کنید.\n"
+            "3. در پایان، دکمه 'بزن بریم' را فشار دهید تا فرایند راه‌اندازی ادامه یابد.\n\n"
+            "😊 *از ریمایندینو لذت ببرید!* برای مشاهده دوباره این دستورالعمل‌ها، /help را تایپ کنید."
+        ),
+        'info': (
+            "🤖 *اطلاعات جامع درباره ریمایندینو*\n\n"
+            "سلام! من ریمایندینو هستم، دستیار دیجیتال شما برای سازماندهی برنامه‌های روزانه. در اینجا به صورت دقیق توضیح داده شده است که هر بخش و دکمه چه کاری انجام می‌دهد:\n\n"
+            "1. *فرایند راه‌اندازی*: \n"
+            "   - با دستور /start آغاز کنید. ابتدا از طریق دکمه‌های اینلاین، زبان (انگلیسی یا فارسی) انتخاب می‌شود. این انتخاب تمام پیام‌ها و دکمه‌ها را به زبان مورد نظر شما نمایش می‌دهد. 🌐\n"
+            "   - سپس یک پیام راهنمای کامل با توضیحات دقیق (با مثال‌های واقعی و ایموجی‌ها) برای شما ارسال می‌شود تا متوجه شوید چگونه از امکانات ریمایندینو استفاده کنید. برای مثال، یاد خواهید گرفت که چگونه وظایف، اهداف، یادآوری‌ها و شمارش معکوس‌ها را اضافه کنید.\n"
+            "   - در پایان این بخش، با فشار دادن دکمه «بزن بریم» فرایند راه‌اندازی ادامه پیدا می‌کند.\n\n"
+            "2. *انتخاب منطقه زمانی*: \n"
+            "   - پس از انتخاب زبان، شما باید منطقه زمانی خود را از میان گزینه‌های ارائه شده انتخاب کنید تا تمام زمان‌ها به درستی محاسبه شوند. ⏰\n\n"
+            "3. *تنظیم خلاصه روزانه*: \n"
+            "   - شما مشخص می‌کنید که چگونه می‌خواهید خلاصه روزانه دریافت کنید؛ مثلا روزانه یا با فاصله‌های زمانی مشخص. این خلاصه شامل وظایف در انتظار، اهداف فعال، یادآوری‌های آتی و شمارش معکوس‌ها خواهد بود. 📋\n\n"
+            "4. *منوی اصلی*: \n"
+            "   - پس از پایان راه‌اندازی، منوی اصلی ظاهر می‌شود که شامل گزینه‌هایی مانند افزودن وظیفه، هدف، یادآوری، شمارش معکوس، نمایش خلاصه، مدیریت موارد، نقل قول‌ها و تنظیمات است. برای مثال، دکمه 'افزودن وظیفه' به شما امکان می‌دهد وظایف جدیدی اضافه کنید.\n\n"
+            "5. *مدیریت موارد*: \n"
+            "   - در این بخش می‌توانید تمامی موارد (وظایف، یادآوری‌ها، اهداف، شمارش معکوس) را مشاهده کرده و در صورت نیاز، حذف کنید. 🗑\n\n"
+            "6. *تنظیمات*: \n"
+            "   - شما می‌توانید در هر زمان زبان یا منطقه زمانی خود را تغییر دهید. ⚙️\n\n"
+            "7. *دستورات اضافی*: \n"
+            "   - /help: یک نمای کلی کوتاه از امکانات ریمایندینو ارائه می‌دهد.\n"
+            "   - /info: این دستور اطلاعات جامع و دقیقی درباره هر بخش و دکمه ارائه می‌دهد.\n\n"
+            "امیدوارم این راهنما به شما کمک کند تا بهترین استفاده را از ریمایندینو ببرید. اگر سوالی داشتید، کافیست دوباره /info را تایپ کنید. 😊"
         ),
         'onboard_info': (
-            "در اینجا یک مرور سریع بر نحوه کار ریمایندینو ارائه شده است:\n"
-            "• شما می‌توانید وظایف، اهداف، یادآوری‌ها و شمارش معکوس‌ها را برای پیگیری برنامه خود اضافه کنید.\n"
-            "• تاریخ‌ها را می‌توان به صورت تقویم غربی یا ایرانی وارد کرد و به صورت خودکار تبدیل می‌شوند.\n"
-            "• از منوی اصلی برای حرکت بین امکانات استفاده کنید.\n\n"
-            "برای شروع، 'بزن بریم' را فشار دهید!"
+            "سلام! من ریمایندینو هستم – دستیار دیجیتال دوستانه شما برای سازماندهی زندگی! 🎉\n\n"
+            "من به شما کمک می‌کنم تا وظایف، اهداف، یادآوری‌ها و شمارش معکوس‌های برنامه‌ی شلوغ خود را مدیریت کنید. چه دانشجو باشید و چه حرفه‌ای، من همیشه در کنار شما هستم! 😎\n\n"
+            "تاریخ‌ها را می‌توانید به صورت تقویم غربی (مثلاً 2023/04/15) یا ایرانی (مثلاً 1402/01/26) وارد کنید و من آن‌ها را به‌طور خودکار تبدیل می‌کنم. چقدر عالیه! 📅✨\n\n"
+            "📚 *امکانات:*\n"
+            "• *برنامه هفتگی:* رویدادهای ثابت هفتگی خود را مدیریت کنید، مانند برنامه کلاس‌ها یا جلسات کاری.\n\n"
+            "• *یادآوری وظایف:* برای تکالیف، پروژه‌ها یا وظایف روزانه یادآوری تنظیم کنید. مثلاً 'پروژه‌تان را تا تاریخ 2023-04-15 23:59 ارسال کنید 📅'.\n\n"
+            "• *شمارش معکوس:* شمارش معکوس برای آزمون‌ها، امتحانات یا رویدادهای مهم ایجاد کنید تا دقیقاً ببینید چقدر زمان باقی مانده است ⏰.\n\n"
+            "• *بررسی‌های تصادفی:* پیام‌های دوستانه مانند 'چیزی برای اضافه کردن دارید؟' به‌طور تصادفی دریافت کنید.\n\n"
+            "• *خلاصه و گزارش‌ها:* خلاصه‌ای از وظایف و رویدادهای روزانه دریافت کنید تا هیچ چیزی از دست ندهید!\n\n"
+            "• *نقل قول‌ها:* نقل قول‌های انگیزشی اضافه کنید تا روحیه‌تان بالا بماند 🌟.\n\n"
+            "⚙️ *مدیریت موارد:* به راحتی وظایف، یادآوری‌ها، اهداف و شمارش معکوس‌های خود را مشاهده و حذف کنید.\n\n"
+            "⚙️ *تنظیمات:* هر زمان که خواستید، زبان یا منطقه زمانی خود را تغییر دهید.\n\n"
+            "💡 *چگونه شروع کنیم:*\n\n"
+            "1. دستور /start را تایپ کنید. شما از طریق دکمه‌های اینلاین، زبان (انگلیسی یا فارسی) و منطقه زمانی خود را انتخاب خواهید کرد.\n"
+            "2. پس از راه‌اندازی، منوی اصلی نمایش داده می‌شود. گزینه‌هایی مانند 'افزودن وظیفه' یا 'افزودن شمارش معکوس' را لمس کنید.\n"
+            "3. هنگام وارد کردن تاریخ، می‌توانید از تقویم غربی (مثلاً 2023/04/15) یا ایرانی (مثلاً 1402/01/26) استفاده کنید؛ من تبدیل آن‌ها را انجام می‌دهم.\n\n"
+            "😊 *از ریمایندینو لذت ببرید!* برای مشاهده دوباره این دستورالعمل‌ها، تنها /info یا /help را تایپ کنید."
+            "برای شروع، دکمه «بزن بریم» را فشار دهید تا با هم روزتان را مدیریت کنیم! 🚀"
         ),
         'onboard_continue': "بزن بریم"
     }
@@ -139,7 +216,7 @@ TIMEZONE_CHOICES = [
 # Onboarding State Definitions
 # -------------------------------
 STATE_LANGUAGE = "language"
-STATE_TIMEZONE = "timezone"      # Now handled via inline buttons
+STATE_TIMEZONE = "timezone"      # Handled via inline buttons
 STATE_SUMMARY_SCHEDULE = "summary_schedule"
 STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
 STATE_RANDOM_CHECKIN = "random_checkin"
@@ -154,7 +231,6 @@ user_states = {}
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
-    # Check if the user exists; if not, create a new record.
     from database import get_db_connection
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -176,6 +252,31 @@ def handle_start(message):
     bot.send_message(message.chat.id, MESSAGES['en']['welcome'], reply_markup=markup)
 
 # -------------------------------
+# /help Command Handler
+# -------------------------------
+@bot.message_handler(commands=['help'])
+def handle_help(message):
+    user_id = message.from_user.id
+    lang = 'en'
+    if user_id in user_states and 'language' in user_states[user_id]['data']:
+        lang = user_states[user_id]['data']['language']
+    help_text = MESSAGES[lang]['help']
+    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+
+# -------------------------------
+# /info Command Handler
+# -------------------------------
+@bot.message_handler(commands=['info'])
+def handle_info(message):
+    user_id = message.from_user.id
+    lang = 'en'
+    if user_id in user_states and 'language' in user_states[user_id]['data']:
+        lang = user_states[user_id]['data']['language']
+    # A very detailed explanation of every action and button.
+    info_text = MESSAGES[lang]['info']
+    bot.send_message(message.chat.id, info_text, parse_mode="Markdown")
+
+# -------------------------------
 # Language Selection Callback Handler
 # -------------------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_lang_"))
@@ -191,7 +292,7 @@ def language_callback_handler(call):
     conn.commit()
     conn.close()
     user_states[user_id]['data']['language'] = selected_lang
-    # Instead of immediately continuing, send an onboarding info message.
+    # Instead of continuing immediately, send the onboarding info message.
     help_msg = MESSAGES[selected_lang]['onboard_info']
     markup = types.InlineKeyboardMarkup()
     btn_continue = types.InlineKeyboardButton(text=MESSAGES[selected_lang]['onboard_continue'], callback_data="onboard_continue")
@@ -206,7 +307,7 @@ def language_callback_handler(call):
 def onboard_continue_handler(call):
     user_id = call.from_user.id
     lang = user_states[user_id]['data'].get('language', 'en')
-    # Now continue with onboarding: set state to TIMEZONE and show timezone options.
+    # Continue with onboarding: set state to TIMEZONE and show timezone options.
     user_states[user_id]['state'] = STATE_TIMEZONE
     tz_markup = types.InlineKeyboardMarkup(row_width=2)
     for label, tz_value in TIMEZONE_CHOICES:
@@ -533,7 +634,6 @@ def manage_callback_handler(call):
         lang = user_states[user_id]['data'].get('language', 'en')
         send_main_menu(bot, chat_id, lang)
     elif data == "settings_change_lang":
-        # Restart language selection
         user_states[user_id]['state'] = STATE_LANGUAGE
         markup = types.InlineKeyboardMarkup()
         btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
@@ -541,7 +641,6 @@ def manage_callback_handler(call):
         markup.add(btn_english, btn_farsi)
         bot.send_message(chat_id, "Please select your language:", reply_markup=markup)
     elif data == "settings_change_tz":
-        # Restart timezone selection using predefined choices
         user_states[user_id]['state'] = STATE_TIMEZONE
         lang = user_states[user_id]['data'].get('language', 'en')
         tz_markup = types.InlineKeyboardMarkup(row_width=2)
@@ -617,7 +716,6 @@ def callback_menu_handler(call):
         start_add_countdown(bot, chat_id, user_id)
     elif data == "menu_view_summary":
         from modules.summaries import send_summary
-        # Retrieve user's language to pass to send_summary.
         user_lang = user_states[user_id]['data'].get('language', 'en')
         send_summary(bot, chat_id, user_id, user_lang)
     elif data == "menu_manage_items":
@@ -633,7 +731,7 @@ def callback_menu_handler(call):
 # -------------------------------
 # Integration: Main Menu from modules/menu.py
 # -------------------------------
-from modules.menu import send_main_menu  # Use this to return to main menu when needed.
+from modules.menu import send_main_menu
 
 # -------------------------------
 # Main Entry Point

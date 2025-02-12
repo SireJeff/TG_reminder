@@ -10,15 +10,57 @@ It generates a summary report for the user that includes:
   - Optionally, a random quote (if any exists for the user)
 
 Key functions:
-  - generate_summary(user_id): Returns a formatted summary string.
-  - send_summary(bot, chat_id, user_id): Sends the summary to the user.
+  - generate_summary(user_id, user_lang='en'): Returns a formatted summary string (localized).
+  - send_summary(bot, chat_id, user_id, user_lang='en'): Sends the summary to the user.
   - get_random_quote(user_id): Retrieves a random quote from the database.
 """
 
 from datetime import datetime, timedelta
 from database import get_db_connection
 
-def generate_summary(user_id):
+# A dictionary for localized summary labels:
+SUMMARY_LABELS = {
+    'en': {
+        'pending_tasks': "**Pending Tasks:**",
+        'no_pending_tasks': "No pending tasks.",
+        'goals_in_progress': "**Goals in Progress:**",
+        'no_goals': "No active goals.",
+        'upcoming_reminders': "**Upcoming Reminders (next 24 hours):**",
+        'no_reminders': "No reminders in the next 24 hours.",
+        'countdowns': "**Countdowns:**",
+        'no_countdowns': "No active countdowns.",
+        'quote_of_the_day': "**Quote of the Day:**",
+        'event_passed': "Event passed",
+        'daily_frequency': "Daily",
+        'weekly_frequency': "Weekly",
+        'monthly_frequency': "Monthly",
+        'seasonal_frequency': "Seasonal",
+        'yearly_frequency': "Yearly",
+    },
+    'fa': {
+        'pending_tasks': "**وظایف در انتظار:**",
+        'no_pending_tasks': "هیچ وظیفه‌ای در انتظار نیست.",
+        'goals_in_progress': "**اهداف در حال پیشرفت:**",
+        'no_goals': "هیچ هدف فعالی ندارید.",
+        'upcoming_reminders': "**یادآوری‌های پیش رو (۲۴ ساعت آینده):**",
+        'no_reminders': "یادآوری‌ای برای ۲۴ ساعت آینده وجود ندارد.",
+        'countdowns': "**شمارش معکوس‌ها:**",
+        'no_countdowns': "شمارش معکوسی فعال نیست.",
+        'quote_of_the_day': "**نقل قول روز:**",
+        'event_passed': "رویداد گذشته است",
+        'daily_frequency': "روزانه",
+        'weekly_frequency': "هفتگی",
+        'monthly_frequency': "ماهانه",
+        'seasonal_frequency': "فصلی",
+        'yearly_frequency': "سالانه",
+    }
+}
+
+def generate_summary(user_id, user_lang='en'):
+    """
+    Generates a localized summary string for the given user.
+    """
+    labels = SUMMARY_LABELS.get(user_lang, SUMMARY_LABELS['en'])
     summary_lines = []
     now = datetime.now()
     
@@ -34,7 +76,7 @@ def generate_summary(user_id):
     """, (user_id,))
     tasks = cursor.fetchall()
     if tasks:
-        summary_lines.append("**Pending Tasks:**")
+        summary_lines.append(labels['pending_tasks'])
         for task in tasks:
             title = task["title"]
             due_date = task["due_date"]
@@ -45,10 +87,10 @@ def generate_summary(user_id):
                 except Exception:
                     due_str = due_date
             else:
-                due_str = "No due date"
+                due_str = ( "No due date" if user_lang == 'en' else "بدون موعد" )
             summary_lines.append(f"- {title} (Due: {due_str})")
     else:
-        summary_lines.append("No pending tasks.")
+        summary_lines.append(labels['no_pending_tasks'])
     
     # --- Active Goals ---
     cursor.execute("""
@@ -59,11 +101,23 @@ def generate_summary(user_id):
     """, (user_id,))
     goals = cursor.fetchall()
     if goals:
-        summary_lines.append("\n**Goals in Progress:**")
+        summary_lines.append(f"\n{labels['goals_in_progress']}")
         for goal in goals:
             title = goal["title"]
             frequency = goal["frequency"]
             next_check_date = goal["next_check_date"]
+            # Localize frequency if you wish:
+            freq_str = frequency
+            if user_lang == 'fa':
+                if frequency == 'daily': freq_str = labels['daily_frequency']
+                elif frequency == 'weekly': freq_str = labels['weekly_frequency']
+                elif frequency == 'monthly': freq_str = labels['monthly_frequency']
+                elif frequency == 'seasonal': freq_str = labels['seasonal_frequency']
+                elif frequency == 'yearly': freq_str = labels['yearly_frequency']
+            else:
+                # English: just capitalize
+                freq_str = freq_str.capitalize()
+
             if next_check_date:
                 try:
                     next_check_dt = datetime.strptime(next_check_date, "%Y-%m-%d %H:%M:%S")
@@ -71,10 +125,10 @@ def generate_summary(user_id):
                 except Exception:
                     next_check_str = next_check_date
             else:
-                next_check_str = "N/A"
-            summary_lines.append(f"- {title} ({frequency.capitalize()} | Next: {next_check_str})")
+                next_check_str = ("N/A" if user_lang == 'en' else "نامشخص")
+            summary_lines.append(f"- {title} ({freq_str} | Next: {next_check_str})")
     else:
-        summary_lines.append("\nNo active goals.")
+        summary_lines.append(f"\n{labels['no_goals']}")
     
     # --- Upcoming Reminders (Next 24 hours) ---
     next_day = now + timedelta(days=1)
@@ -86,7 +140,7 @@ def generate_summary(user_id):
     """, (user_id, now, next_day))
     reminders = cursor.fetchall()
     if reminders:
-        summary_lines.append("\n**Upcoming Reminders (next 24 hours):**")
+        summary_lines.append(f"\n{labels['upcoming_reminders']}")
         for rem in reminders:
             title = rem["title"]
             trigger_time = rem["next_trigger_time"]
@@ -97,7 +151,7 @@ def generate_summary(user_id):
                 trigger_str = trigger_time
             summary_lines.append(f"- {title} (At: {trigger_str})")
     else:
-        summary_lines.append("\nNo reminders in the next 24 hours.")
+        summary_lines.append(f"\n{labels['no_reminders']}")
     
     # --- Countdowns ---
     cursor.execute("""
@@ -108,7 +162,7 @@ def generate_summary(user_id):
     """, (user_id,))
     countdowns = cursor.fetchall()
     if countdowns:
-        summary_lines.append("\n**Countdowns:**")
+        summary_lines.append(f"\n{labels['countdowns']}")
         for cd in countdowns:
             title = cd["title"]
             event_datetime = cd["event_datetime"]
@@ -116,33 +170,33 @@ def generate_summary(user_id):
                 event_dt = datetime.strptime(event_datetime, "%Y-%m-%d %H:%M:%S")
                 delta = event_dt - now
                 if delta.total_seconds() < 0:
-                    time_left = "Event passed"
+                    time_left = labels['event_passed']
                 else:
                     days = delta.days
                     hours, rem = divmod(delta.seconds, 3600)
                     minutes, _ = divmod(rem, 60)
-                    time_left = f"{days}d {hours}h {minutes}m left"
+                    time_left = f"{days}d {hours}h {minutes}m left" if user_lang == 'en' else f"{days}روز {hours}ساعت {minutes}دقیقه باقی‌مانده"
             except Exception:
                 time_left = event_datetime
             summary_lines.append(f"- {title}: {time_left}")
     else:
-        summary_lines.append("\nNo active countdowns.")
+        summary_lines.append(f"\n{labels['no_countdowns']}")
     
     conn.close()
     
     # --- Optional Random Quote ---
     quote = get_random_quote(user_id)
     if quote:
-        summary_lines.append("\n**Quote of the Day:**")
+        summary_lines.append(f"\n{labels['quote_of_the_day']}")
         summary_lines.append(f"_{quote}_")
     
     return "\n".join(summary_lines)
 
-def send_summary(bot, chat_id, user_id):
+def send_summary(bot, chat_id, user_id, user_lang='en'):
     """
-    Generates and sends the summary report to the user.
+    Generates and sends the summary report to the user (in user_lang).
     """
-    summary_text = generate_summary(user_id)
+    summary_text = generate_summary(user_id, user_lang)
     bot.send_message(chat_id, summary_text, parse_mode="Markdown")
 
 def get_random_quote(user_id):

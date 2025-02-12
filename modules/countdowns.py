@@ -9,15 +9,18 @@ Countdown Addition Flow:
 1. User selects "Add Countdown" from the Main Menu.
 2. Bot: "Please name your countdown event:" → user enters the event name.
 3. Bot: "When does it happen? Please enter date and time in YYYY-MM-DD HH:MM format:" → user enters date/time.
+   (The entered date is parsed using our date conversion logic, so both Gregorian and Jalali formats are supported.)
 4. Bot: "Do you want periodic alerts for this event?" is presented via an inline keyboard:
        - Options: None, Daily, Weekly.
 5. Once chosen, the countdown is saved in the database.
-6. Helper functions are provided to list countdowns and compute time left until the event.
+6. Helper functions are provided to list countdowns, compute time left until the event,
+   and delete countdown events.
 """
 
 from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
+from modules.date_conversion import parse_date  # Import date conversion function
 
 # Global dictionary to track countdown conversation state per user.
 # Structure: { user_id: { 'state': <state>, 'data': { ... } } }
@@ -54,12 +57,13 @@ def handle_countdown_messages(bot, message):
         bot.send_message(chat_id, "When does it happen? Please enter the date and time in YYYY-MM-DD HH:MM format:")
     elif current_state == 'awaiting_datetime':
         try:
-            event_datetime = datetime.strptime(text, "%Y-%m-%d %H:%M")
+            # Use parse_date to support both Gregorian and Jalali dates.
+            event_datetime = parse_date(text)
             data['event_datetime'] = event_datetime
             countdowns_states[user_id]['state'] = 'awaiting_notify_choice'
             prompt_notify_choice(bot, chat_id)
-        except ValueError:
-            bot.send_message(chat_id, "Invalid format. Please enter the date and time as YYYY-MM-DD HH:MM")
+        except ValueError as e:
+            bot.send_message(chat_id, f"Invalid format or conversion error: {e}\nPlease enter the date and time as YYYY-MM-DD HH:MM")
     else:
         bot.send_message(chat_id, "Unexpected input. Please follow the instructions.")
 
@@ -164,6 +168,18 @@ def list_countdowns(user_id):
     countdowns = cursor.fetchall()
     conn.close()
     return countdowns
+
+def delete_countdown(user_id, countdown_id):
+    """
+    Deletes the specified countdown event from the database.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM countdowns WHERE id = ? AND user_id = ?", (countdown_id, user_id))
+    conn.commit()
+    conn.close()
+
+
 
 # --------------------------------------------
 # Integration / Revision Summary:

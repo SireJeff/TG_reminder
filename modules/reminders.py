@@ -16,6 +16,7 @@ Reminder Addition Flow:
    (state: 'awaiting_time_option')
 3. If a preset is selected, the next trigger time is computed automatically;
    if "Custom" is selected, the state changes to 'awaiting_custom_time' where the user must enter a date/time in the format "YYYY-MM-DD HH:MM".
+   (The entered date is parsed using our date conversion module so that both Gregorian and Jalali formats are supported.)
 4. Next, the bot asks for the repeat type:
    - Presents an inline keyboard with options:
        • "One-time"
@@ -34,6 +35,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
+from modules.date_conversion import parse_date  # Supports both Gregorian and Jalali date inputs
 
 # Global dictionary to track reminder conversation state per user.
 # Structure: { user_id: { 'state': <state>, 'data': { ... } } }
@@ -110,6 +112,8 @@ def handle_reminder_callbacks(bot, call):
             bot.answer_callback_query(call.id, "Daily reminder set.")
         else:
             bot.answer_callback_query(call.id, "Unknown repeat option.")
+    else:
+        bot.answer_callback_query(call.id, "No reminder action expected here.")
 
 def prompt_time_options(bot, chat_id):
     """
@@ -160,13 +164,14 @@ def handle_reminder_messages(bot, message):
     elif current_state == 'awaiting_custom_time':
         # Expect custom time in "YYYY-MM-DD HH:MM" format.
         try:
-            custom_time = datetime.strptime(text, "%Y-%m-%d %H:%M")
+            # Use parse_date to support both Gregorian and Jalali date inputs.
+            custom_time = parse_date(text)
             data['next_trigger_time'] = custom_time
             reminders_states[user_id]['state'] = 'awaiting_repeat_choice'
             bot.send_message(chat_id, f"Custom reminder time set to: {custom_time.strftime('%Y-%m-%d %H:%M')}")
             prompt_repeat_choice(bot, chat_id)
         except ValueError:
-            bot.send_message(chat_id, "Invalid format. Please enter the date and time as YYYY-MM-DD HH:MM")
+            bot.send_message(chat_id, "Invalid format or conversion error. Please enter the date and time as YYYY-MM-DD HH:MM")
     
     elif current_state == 'awaiting_repeat_value':
         # Expect a numeric value for repetition interval.

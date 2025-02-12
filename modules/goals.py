@@ -12,6 +12,7 @@ Goal Addition Flow:
 4. Bot: "Please select the goal frequency:" with inline buttons (Daily, Weekly, Monthly, Seasonal, Yearly).
 5. User selects a frequency → the callback handler computes the next_check_date and saves the goal to the DB.
 6. A confirmation message is sent to the user.
+7. Additional helper functions allow listing goals, marking them done, and deleting them.
 """
 
 import sqlite3
@@ -106,7 +107,11 @@ def handle_goal_callbacks(bot, call):
         # Save the goal in the database.
         save_goal_in_db(user_id, data.get('title'), frequency, next_check_date)
         bot.answer_callback_query(call.id, "Goal added (" + frequency.capitalize() + ")")
-        bot.edit_message_text("Goal added successfully.\nNext check date: " + next_check_date.strftime("%Y-%m-%d %H:%M"), chat_id, call.message.message_id)
+        bot.edit_message_text(
+            f"Goal added successfully.\nNext check date: {next_check_date.strftime('%Y-%m-%d %H:%M')}",
+            chat_id,
+            call.message.message_id
+        )
         # Clear the conversation state.
         goals_states.pop(user_id, None)
     else:

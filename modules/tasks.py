@@ -13,15 +13,18 @@ Task Addition Flow:
 5. If Yes → Bot offers options: Today, Tomorrow, Custom.
     - Today: Sets due date to today at 23:59.
     - Tomorrow: Sets due date to tomorrow at 23:59.
-    - Custom: Bot prompts: "Enter due date and time in YYYY-MM-DD HH:MM format:"
+    - Custom: Bot prompts: "Enter due date and time in YYYY-MM-DD HH:MM format:".
+       The input is parsed using the date conversion module to support both Gregorian and Jalali dates.
 6. Once the due date is set (or skipped), the task is saved in the database.
 7. A confirmation message is sent.
+8. Additional helper functions allow listing, marking as done, and deleting tasks.
 """
 
 import sqlite3
 from datetime import datetime, timedelta
 from telebot import types
 from database import get_db_connection
+from modules.date_conversion import parse_date  # Supports both Gregorian and Jalali date inputs
 
 # Global dictionary to track task conversation state per user.
 # Structure: { user_id: { 'state': <state>, 'data': { ... } } }
@@ -111,12 +114,13 @@ def handle_task_messages(bot, message):
     elif current_state == 'awaiting_custom_due_date':
         # Expect a custom due date in "YYYY-MM-DD HH:MM" format.
         try:
-            due_date = datetime.strptime(text, "%Y-%m-%d %H:%M")
+            # Use parse_date to support both Gregorian and Jalali date inputs.
+            due_date = parse_date(text)
             save_task_in_db(user_id, data.get('title'), due_date)
             bot.send_message(chat_id, f"Task added with custom due date: {due_date.strftime('%Y-%m-%d %H:%M')}")
             tasks_states.pop(user_id, None)
-        except ValueError:
-            bot.send_message(chat_id, "Invalid format. Please enter the date and time as YYYY-MM-DD HH:MM")
+        except ValueError as e:
+            bot.send_message(chat_id, f"Invalid date format or conversion error: {e}\nPlease enter the date and time as YYYY-MM-DD HH:MM")
     else:
         bot.send_message(chat_id, "Unexpected input. Please follow the instructions.")
 
@@ -172,35 +176,3 @@ def delete_task(user_id, task_id):
     cursor.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
     conn.commit()
     conn.close()
-
-# --------------------------------------------
-# Integration/Revision Summary:
-#
-# 1. database.py: (Chunk 1) Initializes the DB and tables.
-# 2. bot.py: (Chunk 2) Contains bot initialization and onboarding.
-# 3. modules/menu.py: (Chunk 3) Provides the Main Menu with navigation stubs.
-# 4. modules/tasks.py: (Chunk 4) Implements task addition, including:
-#      - start_add_task(bot, chat_id, user_id): Starts the task creation flow.
-#      - handle_task_callbacks(bot, call): Processes inline button callbacks.
-#      - handle_task_messages(bot, message): Processes text messages during task creation.
-#      - save_task_in_db(user_id, title, due_date): Saves the task.
-#      - Additional helper functions: list_tasks, mark_task_done, delete_task.
-#
-# Integration Points in bot.py:
-#    - Import tasks module:
-#          from modules.tasks import start_add_task, handle_task_callbacks, handle_task_messages
-#
-#    - Register a callback handler for task-related callbacks:
-#          @bot.callback_query_handler(func=lambda call: call.data.startswith("task_"))
-#          def callback_task_handler(call):
-#              handle_task_callbacks(bot, call)
-#
-#    - Register a message handler for users in the tasks conversation:
-#          @bot.message_handler(func=lambda message: message.from_user.id in tasks_states)
-#          def message_task_handler(message):
-#              handle_task_messages(bot, message)
-#
-#    - When the user selects "Add Task" from the main menu:
-#          start_add_task(bot, chat_id, user_id)
-#
-# This revision ensures consistency with the overall project structure and end goal.

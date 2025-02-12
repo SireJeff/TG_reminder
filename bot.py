@@ -37,6 +37,7 @@ Revisions in this file:
   - All user-sent messages that are part of these flows are tracked via tracked_user_message.
   - The clear_flow_messages function now attempts to delete both bot and user messages.
   - Logging was added to aid in debugging message deletions.
+  - **New:** Integration of scheduler.py functions during onboarding to schedule summary reports, random check-ins, and due/upcoming summaries.
 """
 
 import telebot
@@ -53,6 +54,17 @@ from database import get_db_connection, init_db
 from modules.weekly_schedule import start_add_weekly_event, weekly_states
 from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages, set_bot
 
+# Import scheduler functions from scheduler.py
+from scheduler import (
+    init_scheduler,
+    schedule_reminder,
+    schedule_summary,
+    schedule_random_checkins,
+    schedule_weekly_event_reminders,
+    schedule_nightly_tomorrow_summary,
+    schedule_due_and_upcoming_summary
+)
+
 # -------------------------------
 # Global Flow Tracking & State Definitions
 # -------------------------------
@@ -67,9 +79,42 @@ user_states = {}  # Global dictionary to store onboarding conversation state per
 # -------------------------------
 # Bot Initialization
 # -------------------------------
-BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
+BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"  # Replace with your actual token.
 bot = telebot.TeleBot(BOT_TOKEN)
 set_bot(bot)
+
+# Start the scheduler in the background.
+init_scheduler()
+
+# -------------------------------
+# Helper Function: Schedule All Jobs for a User
+# -------------------------------
+def schedule_all_jobs(bot, user_id, chat_id):
+    """
+    Reads the user settings from the database and schedules:
+      - Summary messages (daily or custom)
+      - Random check-ins (if set)
+      - Due/upcoming summary (every 30 minutes)
+      - Nightly summary at 21:00
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT summary_schedule, summary_time, random_checkin_max FROM users WHERE user_id = ?", (user_id,))
+    user_settings = cursor.fetchone()
+    conn.close()
+    if not user_settings:
+        return
+
+    summary_schedule = user_settings["summary_schedule"]
+    summary_time = user_settings["summary_time"]
+    random_checkin_max = user_settings["random_checkin_max"]
+
+    if summary_schedule in ("daily", "custom"):
+        schedule_summary(bot, user_id, chat_id, summary_schedule, summary_time)
+    if random_checkin_max and int(random_checkin_max) > 0:
+        schedule_random_checkins(bot, user_id, chat_id, int(random_checkin_max))
+    schedule_due_and_upcoming_summary(bot, user_id, chat_id)
+    schedule_nightly_tomorrow_summary(bot, user_id, chat_id)
 
 # -------------------------------
 # Pre-defined Time Zone Choices
@@ -118,6 +163,7 @@ def handle_start(message):
         """, (user_id,))
         conn.commit()
     conn.close()
+    # You may opt to schedule jobs for returning users here if desired.
     user_states[user_id] = {'state': STATE_LANGUAGE, 'data': {}}
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
@@ -160,7 +206,6 @@ def language_callback_handler(call):
     btn_continue = types.InlineKeyboardButton(text=MESSAGES[selected_lang]['onboard_continue'], callback_data="onboard_continue")
     markup.add(btn_continue)
     tracked_send_message(call.message.chat.id, user_id, help_msg, reply_markup=markup)
-    # Using a literal confirmation string here.
     bot.answer_callback_query(call.id, "Language set.")
 
 # -------------------------------
@@ -288,6 +333,8 @@ def onboarding_message_handler(message):
             user_states[user_id]['state'] = STATE_COMPLETED
             clear_flow_messages(message.chat.id, user_id)
             bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
+            # --- NEW: Schedule user-specific jobs based on onboarding settings ---
+            schedule_all_jobs(bot, user_id, message.chat.id)
             from modules.menu import send_main_menu
             send_main_menu(bot, message.chat.id, lang)
         else:
@@ -383,7 +430,6 @@ def manage_items_menu(bot, chat_id, user_id):
     markup.row(btn_tasks, btn_reminders)
     markup.row(btn_goals, btn_countdowns)
     markup.add(btn_back)
-    # Send using tracked_send_message for flow clearance.
     tracked_send_message(chat_id, user_id, MESSAGES[lang].get('manage_items_menu', "Manage Items:\nSelect a category to view and delete items:"), reply_markup=markup)
 
 def manage_tasks(bot, chat_id, user_id):

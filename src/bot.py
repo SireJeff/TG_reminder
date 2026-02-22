@@ -33,16 +33,24 @@ Ensure that the following modules/files are available:
 Replace "YOUR_TELEGRAM_BOT_TOKEN" with your actual bot token.
 
 Revisions in this file:
-  - All messages sent as part of multi‐step flows (onboarding, summary schedule, etc.) now use tracked_send_message.
-  - In addition, all user-sent messages that are part of these flows are tracked via tracked_user_message.
+  - All messages sent as part of multi‐step flows now use tracked_send_message.
+  - All user-sent messages that are part of these flows are tracked via tracked_user_message.
   - The clear_flow_messages function now attempts to delete both bot and user messages.
   - Logging was added to aid in debugging message deletions.
+  - **New:** Integration of scheduler.py functions during onboarding to schedule summary reports, random check-ins, and due/upcoming summaries.
+  - **New:** When scheduling jobs, the user's chosen timezone (from the bot) is passed into the scheduler functions.
 """
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 import telebot
 from telebot import types
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+from messages import MESSAGES
 
 # Setup basic logging for debugging flow cleanup.
 logging.basicConfig(level=logging.INFO)
@@ -50,174 +58,85 @@ logger = logging.getLogger(__name__)
 
 from database import get_db_connection, init_db
 from modules.weekly_schedule import start_add_weekly_event, weekly_states
-# Old line (to be removed):
-# from bot import tracked_send_message, tracked_user_message, clear_flow_messages
-
-# New import:
 from flow_helpers import tracked_send_message, tracked_user_message, clear_flow_messages, set_bot
 
-# -------------------------------
-# Global Flow Tracking
-# -------------------------------
+# Import scheduler functions from scheduler.py
+from scheduler import (
+    init_scheduler,
+    schedule_reminder,
+    schedule_summary,
+    schedule_random_checkins,
+    schedule_weekly_event_reminders,
+    schedule_nightly_tomorrow_summary,
+    schedule_due_and_upcoming_summary
+)
 
+# -------------------------------
+# Global Flow Tracking & State Definitions
+# -------------------------------
+STATE_LANGUAGE = "language"
+STATE_TIMEZONE = "timezone"      # Handled via inline buttons
+STATE_SUMMARY_SCHEDULE = "summary_schedule"
+STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
+STATE_RANDOM_CHECKIN = "random_checkin"
+STATE_COMPLETED = "completed"
+user_states = {}  # Global dictionary to store onboarding conversation state per user.
 
 # -------------------------------
 # Bot Initialization
 # -------------------------------
-BOT_TOKEN = "7993339613:AAH2wXp3RKqIPoZssPvtbHvzKleu5yVbDzQ"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Replace with your actual token.
 bot = telebot.TeleBot(BOT_TOKEN)
 set_bot(bot)
+
+# Start the scheduler in the background.
+init_scheduler()
+
 # -------------------------------
-# Multilingual Message Dictionary
+# Helper Function: Schedule All Jobs for a User
 # -------------------------------
-MESSAGES = {
-    'en': {
-        'welcome': "Welcome to Remindino Bot! 🤖\nPlease select your language:",
-        'select_timezone': "Please select your timezone:",
-        'set_timezone': "Timezone set to {}. ⏰",
-        'select_summary': "How would you like to receive summaries? Choose one:",
-        'enter_daily_time': "Please enter the time for your daily summary in HH:MM format (e.g., 20:00):",
-        'enter_custom_interval': "Please enter the interval in hours for your summary (e.g., 3):",
-        'enter_random_checkins': "How many random check-ins per day would you like? (Enter a number, e.g., 2)",
-        'onboarding_complete': "Onboarding complete! Welcome to Remindino! 🎉",
-        'help': (
-            "🤖 *Remindino Bot Help*\n\n"
-            "Quick Overview:\n"
-            "• /help: Brief overview of features.\n"
-            "• /info: Detailed explanation of every feature, button, and input.\n\n"
-            "Key Features:\n"
-            "• *Tasks*: Add, update, and delete tasks with optional due dates.\n"
-            "• *Goals*: Set long-term goals with daily, weekly, monthly, seasonal, or yearly frequencies.\n"
-            "• *Reminders*: Set reminders for important events (preset or custom times).\n"
-            "• *Countdowns*: Create countdowns for events (e.g., exams) and see the time left.\n"
-            "• *Weekly Schedule*: Add recurring weekly events (e.g., classes, meetings).\n"
-            "• *Random Check-Ins*: Receive friendly prompts throughout the day.\n"
-            "• *Summaries*: Receive daily summaries of your items.\n"
-            "• *Quotes*: Add motivational quotes.\n\n"
-            "Manage items and adjust settings via the main menu.\n"
-            "For a detailed explanation of each feature, type /info. Enjoy!"
-        ),
-        'info': (
-            "🤖 *Detailed Info for Remindino*\n\n"
-            "Welcome! Here’s a deep dive into how every part of Remindino works:\n\n"
-            "1. *Onboarding*: \n"
-            "   - When you type /start, you'll first choose your language using inline buttons. "
-            "This selection sets the language for all messages. 🌐\n"
-            "   - After selecting your language, you'll see a detailed info message explaining all the bot's features—such as adding tasks, setting goals, creating reminders and countdowns, and managing a weekly schedule. "
-            "You can also use /info anytime to see these details again.\n"
-            "   - Press the 'Let's go' button to continue the onboarding process.\n\n"
-            "2. *Time Zone Selection*: \n"
-            "   - Select your timezone from a list (e.g., Tehran, London) to ensure that all times are correct. ⏰\n\n"
-            "3. *Summary Settings*: \n"
-            "   - Choose how you'd like to receive daily summaries of your tasks, goals, reminders, and countdowns. 📋\n\n"
-            "4. *Main Menu*: \n"
-            "   - After onboarding, the main menu appears with options to add tasks, goals, reminders, countdowns, and weekly schedule events, view summaries, manage items, add quotes, and change settings.\n\n"
-            "5. *Weekly Schedule*: \n"
-            "   - This new feature lets you add recurring events on a specific day of the week at a specific time. "
-            "For example, you can set a weekly event for 'Math Class' every Monday at 09:30. 📅\n\n"
-            "6. *Manage Items & Settings*: \n"
-            "   - View and delete existing tasks, reminders, goals, countdowns, or weekly events. "
-            "Settings allow you to change your language or timezone at any time. ⚙️\n\n"
-            "7. *Additional Commands*:\n"
-            "   - /help: Shows a brief overview of features.\n"
-            "   - /info: Shows this detailed explanation of every feature, button, and input.\n\n"
-            "This guide is here to help you get the most out of Remindino. If you have questions, just type /info. Enjoy organizing your life! 😊"
-        ),
-        'onboard_info': (
-            "Hey there! I'm Remindino – your friendly digital assistant here to help you organize your life! 🎉\n\n"
-            "I can help you add tasks, set reminders, track countdowns for events, and even manage a weekly schedule for recurring events like classes or meetings. "
-            "🤖 *Remindino Bot Help*\n\n"
-            "Quick Overview:\n"
-            "• /help: Brief overview of features.\n"
-            "• /info: Detailed explanation of every feature, button, and input.\n\n"
-            "Key Features:\n"
-            "• *Tasks*: Add, update, and delete tasks with optional due dates.\n"
-            "• *Goals*: Set long-term goals with daily, weekly, monthly, seasonal, or yearly frequencies.\n"
-            "• *Reminders*: Set reminders for important events (preset or custom times).\n"
-            "• *Countdowns*: Create countdowns for events (e.g., exams) and see the time left.\n"
-            "• *Weekly Schedule*: Add recurring weekly events (e.g., classes, meetings).\n"
-            "• *Random Check-Ins*: Receive friendly prompts throughout the day.\n"
-            "• *Summaries*: Receive daily summaries of your items.\n"
-            "• *Quotes*: Add motivational quotes.\n\n"
-            "Manage items and adjust settings via the main menu.\n"
-            "For a detailed explanation of each feature, type /info. Enjoy!\n\n"
-            "When you're ready, press the button below to continue."
-        ),
-        'onboard_continue': "Let's go"
-    },
-    'fa': {
-        'welcome': "به ریمایندینو خوش آمدید! 🤖\nلطفاً زبان خود را انتخاب کنید:",
-        'select_timezone': "لطفاً منطقه زمانی خود را انتخاب کنید:",
-        'set_timezone': "منطقه زمانی {} تنظیم شد. ⏰",
-        'select_summary': "چگونه می‌خواهید خلاصه‌ها را دریافت کنید؟ یکی را انتخاب کنید:",
-        'enter_daily_time': "لطفاً زمان دریافت خلاصه روزانه خود را به فرمت HH:MM وارد کنید (مثلاً 20:00):",
-        'enter_custom_interval': "لطفاً فاصله زمانی به ساعت برای دریافت خلاصه را وارد کنید (مثلاً 3):",
-        'enter_random_checkins': "چند بار در روز می‌خواهید یادآوری‌های تصادفی دریافت کنید؟ (یک عدد وارد کنید، مثلاً 2)",
-        'onboarding_complete': "فرایند راه‌اندازی کامل شد! به ریمایندینو خوش آمدید! 🎉",
-        'help': (
-            "🤖 *راهنمای ریمایندینو*\n\n"
-            "نمای کلی کوتاه:\n"
-            "• /help: نمای کلی کوتاهی از امکانات.\n"
-            "• /info: توضیحات جامع و دقیق درباره هر ویژگی، دکمه و ورودی.\n\n"
-            "امکانات اصلی:\n"
-            "• *وظایف:* افزودن، به‌روزرسانی و حذف وظایف با امکان تعیین موعد.\n"
-            "• *اهداف:* تنظیم اهداف بلندمدت با فرکانس‌های روزانه، هفتگی، ماهانه، فصلی یا سالانه.\n"
-            "• *یادآوری‌ها:* دریافت یادآوری برای رویدادهای مهم با زمان‌های از پیش تعیین‌شده یا ورودی سفارشی.\n"
-            "• *شمارش معکوس:* ایجاد شمارش معکوس برای رویدادهای مهم (مثلاً امتحانات) و نمایش زمان باقی‌مانده.\n"
-            "• *برنامه هفتگی:* افزودن رویدادهای تکرارشونده در یک روز مشخص از هفته (مثلاً کلاس‌ها یا جلسات).\n"
-            "• *بررسی‌های تصادفی:* دریافت پیام‌های دوستانه به‌صورت تصادفی.\n"
-            "• *خلاصه و گزارش‌ها:* دریافت خلاصه روزانه از وظایف، اهداف، یادآوری‌ها و شمارش معکوس‌ها.\n"
-            "• *نقل قول‌ها:* افزودن نقل قول‌های انگیزشی برای افزایش روحیه.\n\n"
-            "شما می‌توانید از منوی اصلی موارد خود را مدیریت و از تنظیمات برای تغییر زبان یا منطقه زمانی استفاده کنید.\n\n"
-            "برای توضیحات دقیق درباره هر بخش، /info را تایپ کنید. 😊"
-        ),
-        'info': (
-            "🤖 *اطلاعات جامع درباره ریمایندینو*\n\n"
-            "سلام! من ریمایندینو هستم، دستیار دیجیتال شما برای سازماندهی برنامه‌های روزانه. در اینجا به‌طور دقیق توضیح داده شده است که هر بخش و دکمه چه کاری انجام می‌دهد:\n\n"
-            "1. *راه‌اندازی اولیه*: \n"
-            "   - با دستور /start ابتدا زبان (انگلیسی یا فارسی) انتخاب می‌شود؛ این انتخاب باعث می‌شود تمام پیام‌ها به زبان مورد نظر شما نمایش داده شوند. 🌐\n"
-            "   - سپس یک پیام راهنمای جامع با توضیحات دقیق و مثال‌های واقعی برای شما ارسال می‌شود. برای مثال، یاد خواهید گرفت چگونه وظایف، اهداف، یادآوری‌ها، شمارش معکوس و برنامه هفتگی را اضافه کنید.\n"
-            "   - در پایان، دکمه «بزن بریم» قرار دارد تا پس از مطالعه راهنما، فرایند راه‌اندازی ادامه یابد.\n\n"
-            "2. *انتخاب منطقه زمانی*: \n"
-            "   - شما از میان گزینه‌های ارائه شده، منطقه زمانی خود را انتخاب می‌کنید تا تمام زمان‌های برنامه‌ریزی شده صحیح باشند. ⏰\n\n"
-            "3. *تنظیم خلاصه روزانه*: \n"
-            "   - شما مشخص می‌کنید چگونه خلاصه روزانه خود را دریافت کنید؛ مثلاً روزانه یا با فاصله‌های زمانی مشخص. این خلاصه شامل وظایف در انتظار، اهداف فعال، یادآوری‌های آتی، شمارش معکوس‌ها و برنامه هفتگی است. 📋\n\n"
-            "4. *منوی اصلی*: \n"
-            "   - پس از پایان راه‌اندازی، منوی اصلی شامل گزینه‌هایی برای افزودن وظایف، اهداف، یادآوری‌ها، شمارش معکوس، برنامه هفتگی، نمایش خلاصه، مدیریت موارد، نقل قول‌ها و تنظیمات است. هر دکمه به وضوح توضیح داده شده است.\n\n"
-            "5. *برنامه هفتگی*: \n"
-            "   - در این بخش می‌توانید رویدادهای تکرارشونده هفتگی (مانند کلاس‌ها یا جلسات) را اضافه کنید. برای مثال، می‌توانید یک رویداد برای 'کلاس ریاضی' در هر دوشنبه ساعت 09:30 تنظیم کنید. 📅\n\n"
-            "6. *مدیریت موارد*: \n"
-            "   - شما می‌توانید مواردی مانند وظایف، یادآوری‌ها، اهداف، شمارش معکوس و برنامه هفتگی را مشاهده و در صورت نیاز حذف کنید. 🗑\n\n"
-            "7. *تنظیمات*: \n"
-            "   - شما هر زمان می‌توانید زبان یا منطقه زمانی خود را تغییر دهید. ⚙️\n\n"
-            "8. *دستورات اضافی*: \n"
-            "   - /help: نمای کلی کوتاهی از امکانات ارائه می‌دهد.\n"
-            "   - /info: این دستور توضیحات جامع و دقیقی درباره هر بخش و دکمه ارائه می‌دهد.\n\n"
-            "امیدواریم این راهنما به شما کمک کند تا بهترین استفاده را از ریمایندینو ببرید. در هر زمان می‌توانید /info را تایپ کنید تا به این توضیحات دوباره دست پیدا کنید. 😊"
-        ),
-        'onboard_info': (
-            "سلام! من ریمایندینو هستم – دستیار دیجیتال دوستانه شما برای سازماندهی زندگی! 🎉\n\n"
-            "من به شما کمک می‌کنم تا وظایف، اهداف، یادآوری‌ها، شمارش معکوس‌ها و برنامه هفتگی رویدادها را مدیریت کنید. چه دانشجو باشید و چه حرفه‌ای، من همیشه در کنار شما هستم! 😎\n\n"
-            "🤖 *راهنمای ریمایندینو*\n\n"
-            "نمای کلی کوتاه:\n"
-            "• /help: نمای کلی کوتاهی از امکانات.\n"
-            "• /info: توضیحات جامع و دقیق درباره هر ویژگی، دکمه و ورودی.\n\n"
-            "امکانات اصلی:\n"
-            "• *وظایف:* افزودن، به‌روزرسانی و حذف وظایف با امکان تعیین موعد.\n"
-            "• *اهداف:* تنظیم اهداف بلندمدت با فرکانس‌های روزانه، هفتگی، ماهانه، فصلی یا سالانه.\n"
-            "• *یادآوری‌ها:* دریافت یادآوری برای رویدادهای مهم با زمان‌های از پیش تعیین‌شده یا ورودی سفارشی.\n"
-            "• *شمارش معکوس:* ایجاد شمارش معکوس برای رویدادهای مهم (مثلاً امتحانات) و نمایش زمان باقی‌مانده.\n"
-            "• *برنامه هفتگی:* افزودن رویدادهای تکرارشونده در یک روز مشخص از هفته (مثلاً کلاس‌ها یا جلسات).\n"
-            "• *بررسی‌های تصادفی:* دریافت پیام‌های دوستانه به‌صورت تصادفی.\n"
-            "• *خلاصه و گزارش‌ها:* دریافت خلاصه روزانه از وظایف، اهداف، یادآوری‌ها و شمارش معکوس‌ها.\n"
-            "• *نقل قول‌ها:* افزودن نقل قول‌های انگیزشی برای افزایش روحیه.\n\n"
-            "شما می‌توانید از منوی اصلی موارد خود را مدیریت و از تنظیمات برای تغییر زبان یا منطقه زمانی استفاده کنید.\n\n"
-            "برای توضیحات دقیق درباره هر بخش، /info را تایپ کنید. 😊\n"
-            "برای شروع، دکمه «بزن بریم» را فشار دهید تا فرایند راه‌اندازی ادامه یابد."
-        ),
-        'onboard_continue': "بزن بریم"
-    }
-}
+# ... [imports and other code above unchanged] ...
+
+# -------------------------------
+# Helper Function: Schedule All Jobs for a User
+# -------------------------------
+def schedule_all_jobs(bot, user_id, chat_id):
+    """
+    Reads the user settings from the database and schedules:
+      - Summary messages (daily or custom)
+      - Random check-ins (if set)
+      - Due/upcoming summary (every 30 minutes)
+      - Nightly summary at 21:00
+      - Weekly event reminders
+    The user's timezone is also retrieved and passed to the scheduler functions.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT summary_schedule, summary_time, random_checkin_max, timezone FROM users WHERE user_id = ?",
+        (user_id,)
+    )
+    user_settings = cursor.fetchone()
+    conn.close()
+    if not user_settings:
+        return
+
+    # Convert the sqlite3.Row to a dict so that we can use .get()
+    user_settings = dict(user_settings)
+    summary_schedule = user_settings.get("summary_schedule")
+    summary_time = user_settings.get("summary_time")
+    random_checkin_max = user_settings.get("random_checkin_max")
+    user_tz = user_settings.get("timezone", "UTC")
+
+    if summary_schedule in ("daily", "custom"):
+        schedule_summary(bot, user_id, chat_id, summary_schedule, summary_time, user_tz)
+    if random_checkin_max and int(random_checkin_max) > 0:
+        schedule_random_checkins(bot, user_id, chat_id, int(random_checkin_max), user_tz)
+    schedule_due_and_upcoming_summary(bot, user_id, chat_id, user_tz)
+    schedule_nightly_tomorrow_summary(bot, user_id, chat_id, user_tz)
+    schedule_weekly_event_reminders(bot, user_id, chat_id, user_tz)
+
+# ... [rest of your bot.py remains unchanged] ...
 
 # -------------------------------
 # Pre-defined Time Zone Choices
@@ -236,16 +155,8 @@ TIMEZONE_CHOICES = [
 ]
 
 # -------------------------------
-# Onboarding State Definitions
+# Weekly Schedule Handlers
 # -------------------------------
-STATE_LANGUAGE = "language"
-STATE_TIMEZONE = "timezone"      # Handled via inline buttons
-STATE_SUMMARY_SCHEDULE = "summary_schedule"
-STATE_SUMMARY_TIME = "summary_time"   # For daily time (HH:MM) or custom interval (in hours)
-STATE_RANDOM_CHECKIN = "random_checkin"
-STATE_COMPLETED = "completed"
-user_states = {}  # Global dictionary to store onboarding conversation state per user.
-
 @bot.message_handler(func=lambda message: message.from_user.id in weekly_states)
 def message_weekly_handler(message):
     from modules.weekly_schedule import handle_weekly_event_messages
@@ -263,7 +174,6 @@ def weekly_callback_handler(call):
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
-    from database import get_db_connection
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -275,8 +185,8 @@ def handle_start(message):
         """, (user_id,))
         conn.commit()
     conn.close()
+    # (Optionally, you could schedule jobs for returning users here.)
     user_states[user_id] = {'state': STATE_LANGUAGE, 'data': {}}
-    # Prompt for language selection using tracked_send_message.
     markup = types.InlineKeyboardMarkup()
     btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
     btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
@@ -284,28 +194,19 @@ def handle_start(message):
     tracked_send_message(message.chat.id, user_id, MESSAGES['en']['welcome'], reply_markup=markup)
 
 # -------------------------------
-# /help Command Handler
+# /help and /info Command Handlers
 # -------------------------------
 @bot.message_handler(commands=['help'])
 def handle_help(message):
     user_id = message.from_user.id
-    lang = 'en'
-    if user_id in user_states and 'language' in user_states[user_id]['data']:
-        lang = user_states[user_id]['data']['language']
-    help_text = MESSAGES[lang]['help']
-    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
+    bot.send_message(message.chat.id, MESSAGES[lang]['help'], parse_mode="Markdown")
 
-# -------------------------------
-# /info Command Handler
-# -------------------------------
 @bot.message_handler(commands=['info'])
 def handle_info(message):
     user_id = message.from_user.id
-    lang = 'en'
-    if user_id in user_states and 'language' in user_states[user_id]['data']:
-        lang = user_states[user_id]['data']['language']
-    info_text = MESSAGES[lang]['info']
-    bot.send_message(message.chat.id, info_text, parse_mode="Markdown")
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
+    bot.send_message(message.chat.id, MESSAGES[lang]['info'], parse_mode="Markdown")
 
 # -------------------------------
 # Language Selection Callback Handler
@@ -316,20 +217,18 @@ def language_callback_handler(call):
     if user_id not in user_states:
         return
     selected_lang = call.data.split("set_lang_")[1]  # "en" or "fa"
-    from database import get_db_connection
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET language = ? WHERE user_id = ?", (selected_lang, user_id))
     conn.commit()
     conn.close()
     user_states[user_id]['data']['language'] = selected_lang
-    # Send the detailed onboarding info message using tracked_send_message.
     help_msg = MESSAGES[selected_lang]['onboard_info']
     markup = types.InlineKeyboardMarkup()
     btn_continue = types.InlineKeyboardButton(text=MESSAGES[selected_lang]['onboard_continue'], callback_data="onboard_continue")
     markup.add(btn_continue)
     tracked_send_message(call.message.chat.id, user_id, help_msg, reply_markup=markup)
-    bot.answer_callback_query(call.id, f"Language set to {selected_lang}")
+    bot.answer_callback_query(call.id, "Language set.")
 
 # -------------------------------
 # Onboard Continue Callback Handler
@@ -338,9 +237,7 @@ def language_callback_handler(call):
 def onboard_continue_handler(call):
     user_id = call.from_user.id
     lang = user_states[user_id]['data'].get('language', 'en')
-    # Before continuing, clear all tracked flow messages (bot & user).
     clear_flow_messages(call.message.chat.id, user_id)
-    # Continue with onboarding: set state to TIMEZONE and show timezone options.
     user_states[user_id]['state'] = STATE_TIMEZONE
     tz_markup = types.InlineKeyboardMarkup(row_width=2)
     for label, tz_value in TIMEZONE_CHOICES:
@@ -358,7 +255,6 @@ def timezone_callback_handler(call):
     if user_id not in user_states:
         return
     tz_value = call.data.split("set_tz_")[1]
-    from database import get_db_connection
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (tz_value, user_id))
@@ -369,9 +265,9 @@ def timezone_callback_handler(call):
     lang = user_states[user_id]['data'].get('language', 'en')
     bot.answer_callback_query(call.id, MESSAGES[lang]['set_timezone'].format(tz_value))
     summary_markup = types.InlineKeyboardMarkup()
-    btn_daily = types.InlineKeyboardButton(text=("Daily" if lang == 'en' else "روزانه"), callback_data="set_summary_daily")
-    btn_custom = types.InlineKeyboardButton(text=("Every X hours" if lang == 'en' else "هر X ساعت"), callback_data="set_summary_custom")
-    btn_none = types.InlineKeyboardButton(text=("None" if lang == 'en' else "هیچ"), callback_data="set_summary_none")
+    btn_daily = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_daily', "Daily"), callback_data="set_summary_daily")
+    btn_custom = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_custom', "Every X hours"), callback_data="set_summary_custom")
+    btn_none = types.InlineKeyboardButton(text=MESSAGES[lang].get('summary_none', "None"), callback_data="set_summary_none")
     summary_markup.add(btn_daily, btn_custom, btn_none)
     tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['select_summary'], reply_markup=summary_markup)
 
@@ -390,23 +286,22 @@ def summary_callback_handler(call):
     if selection == "daily":
         user_states[user_id]['data']['summary_schedule'] = 'daily'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
-        bot.answer_callback_query(call.id, "Daily summary selected")
+        bot.answer_callback_query(call.id, "Daily summary selected.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_daily_time'])
     elif selection == "custom":
         user_states[user_id]['data']['summary_schedule'] = 'custom'
         user_states[user_id]['state'] = STATE_SUMMARY_TIME
-        bot.answer_callback_query(call.id, "Custom summary interval selected")
+        bot.answer_callback_query(call.id, "Custom summary interval selected.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_custom_interval'])
     elif selection == "none":
         user_states[user_id]['data']['summary_schedule'] = 'disabled'
-        from database import get_db_connection
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET summary_schedule = ? WHERE user_id = ?", ('disabled', user_id))
         conn.commit()
         conn.close()
         user_states[user_id]['state'] = STATE_RANDOM_CHECKIN
-        bot.answer_callback_query(call.id, "No summary will be sent")
+        bot.answer_callback_query(call.id, "No summary will be sent.")
         tracked_send_message(call.message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
     else:
         bot.answer_callback_query(call.id, "Unhandled summary callback.")
@@ -417,7 +312,6 @@ def summary_callback_handler(call):
 @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, {}).get('state') in [STATE_SUMMARY_TIME, STATE_RANDOM_CHECKIN])
 def onboarding_message_handler(message):
     user_id = message.from_user.id
-    # Track the user-sent message as part of the flow.
     tracked_user_message(message)
     current_state = user_states[user_id]['state']
     text = message.text.strip()
@@ -427,7 +321,6 @@ def onboarding_message_handler(message):
         if summary_schedule == 'daily':
             try:
                 datetime.strptime(text, "%H:%M")
-                from database import get_db_connection
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("UPDATE users SET summary_schedule = ?, summary_time = ? WHERE user_id = ?", ('daily', text, user_id))
@@ -440,7 +333,6 @@ def onboarding_message_handler(message):
                 tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_daily_time'])
         elif summary_schedule == 'custom':
             if text.isdigit():
-                from database import get_db_connection
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("UPDATE users SET summary_schedule = ?, summary_time = ? WHERE user_id = ?", ('custom', text, user_id))
@@ -454,7 +346,6 @@ def onboarding_message_handler(message):
     elif current_state == STATE_RANDOM_CHECKIN:
         if text.isdigit():
             random_checkin = int(text)
-            from database import get_db_connection
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET random_checkin_max = ? WHERE user_id = ?", (random_checkin, user_id))
@@ -462,16 +353,17 @@ def onboarding_message_handler(message):
             conn.close()
             user_states[user_id]['data']['random_checkin'] = random_checkin
             user_states[user_id]['state'] = STATE_COMPLETED
-            # Clear all flow messages (both bot and user) before showing main menu.
             clear_flow_messages(message.chat.id, user_id)
             bot.send_message(message.chat.id, MESSAGES[lang]['onboarding_complete'])
+            # --- NEW: Schedule user-specific jobs based on onboarding settings ---
+            schedule_all_jobs(bot, user_id, message.chat.id)
             from modules.menu import send_main_menu
             send_main_menu(bot, message.chat.id, lang)
         else:
             tracked_send_message(message.chat.id, user_id, MESSAGES[lang]['enter_random_checkins'])
 
 # -------------------------------
-# Integration: Tasks Module (Chunk 4)
+# Integration: Tasks Module
 # -------------------------------
 from modules.tasks import start_add_task, handle_task_callbacks, handle_task_messages, tasks_states
 
@@ -484,7 +376,7 @@ def message_task_handler(message):
     handle_task_messages(bot, message)
 
 # -------------------------------
-# Integration: Goals Module (Chunk 5)
+# Integration: Goals Module
 # -------------------------------
 from modules.goals import start_add_goal, handle_goal_callbacks, handle_goal_messages, goals_states
 
@@ -497,7 +389,7 @@ def message_goal_handler(message):
     handle_goal_messages(bot, message)
 
 # -------------------------------
-# Integration: Reminders Module (Chunk 6)
+# Integration: Reminders Module
 # -------------------------------
 from modules.reminders import start_add_reminder, handle_reminder_callbacks, handle_reminder_messages, reminders_states
 
@@ -510,7 +402,7 @@ def message_reminder_handler(message):
     handle_reminder_messages(bot, message)
 
 # -------------------------------
-# Integration: Countdowns Module (Chunk 7)
+# Integration: Countdowns Module
 # -------------------------------
 from modules.countdowns import start_add_countdown, handle_countdown_messages, handle_countdown_callbacks, countdowns_states
 
@@ -523,7 +415,7 @@ def message_countdown_handler(message):
     handle_countdown_messages(bot, message)
 
 # -------------------------------
-# Integration: Random Check-Ins Module (Chunk 8)
+# Integration: Random Check-Ins Module
 # -------------------------------
 from modules.random_checkins import send_random_checkin, handle_random_checkin_callback, schedule_daily_checkins
 
@@ -532,13 +424,13 @@ def callback_random_handler(call):
     handle_random_checkin_callback(bot, call)
 
 # -------------------------------
-# Integration: Summaries & Reports Module (Chunk 9)
+# Integration: Summaries & Reports Module
 # -------------------------------
 from modules.summaries import send_summary, generate_summary
 # (For now, the "View Summary" menu option calls send_summary.)
 
 # -------------------------------
-# Integration: Quotes Module (Chunk 10)
+# Integration: Quotes Module
 # -------------------------------
 from modules.quotes import start_add_quote, handle_quote_messages, quotes_states, get_random_quote
 
@@ -550,22 +442,24 @@ def message_quote_handler(message):
 # Additional Utility: Manage Items Menu
 # -------------------------------
 def manage_items_menu(bot, chat_id, user_id):
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     markup = types.InlineKeyboardMarkup()
-    btn_tasks = types.InlineKeyboardButton(text="Manage Tasks", callback_data="manage_tasks")
-    btn_reminders = types.InlineKeyboardButton(text="Manage Reminders", callback_data="manage_reminders")
-    btn_goals = types.InlineKeyboardButton(text="Manage Goals", callback_data="manage_goals")
-    btn_countdowns = types.InlineKeyboardButton(text="Manage Countdowns", callback_data="manage_countdowns")
-    btn_back = types.InlineKeyboardButton(text="Back to Main Menu", callback_data="back_main")
+    btn_tasks = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_tasks', "Manage Tasks"), callback_data="manage_tasks")
+    btn_reminders = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_reminders', "Manage Reminders"), callback_data="manage_reminders")
+    btn_goals = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_goals', "Manage Goals"), callback_data="manage_goals")
+    btn_countdowns = types.InlineKeyboardButton(text=MESSAGES[lang].get('manage_countdowns', "Manage Countdowns"), callback_data="manage_countdowns")
+    btn_back = types.InlineKeyboardButton(text=MESSAGES[lang].get('back_to_main_menu', "Back to Main Menu"), callback_data="back_main")
     markup.row(btn_tasks, btn_reminders)
     markup.row(btn_goals, btn_countdowns)
     markup.add(btn_back)
-    bot.send_message(chat_id, "Manage Items:\nSelect a category to view and delete items:", reply_markup=markup)
+    tracked_send_message(chat_id, user_id, MESSAGES[lang].get('manage_items_menu', "Manage Items:\nSelect a category to view and delete items:"), reply_markup=markup)
 
 def manage_tasks(bot, chat_id, user_id):
     from modules.tasks import list_tasks, delete_task
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     tasks = list_tasks(user_id)
     if not tasks:
-        bot.send_message(chat_id, "No tasks found.")
+        bot.send_message(chat_id, MESSAGES[lang].get('no_tasks_found', "No tasks found."))
         return
     for task in tasks:
         task_id = task["id"]
@@ -578,9 +472,10 @@ def manage_tasks(bot, chat_id, user_id):
 
 def manage_reminders(bot, chat_id, user_id):
     from modules.reminders import list_reminders, delete_reminder
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     reminders = list_reminders(user_id)
     if not reminders:
-        bot.send_message(chat_id, "No reminders found.")
+        bot.send_message(chat_id, MESSAGES[lang].get('no_reminders_found', "No reminders found."))
         return
     for rem in reminders:
         rem_id = rem["id"]
@@ -593,9 +488,10 @@ def manage_reminders(bot, chat_id, user_id):
 
 def manage_goals(bot, chat_id, user_id):
     from modules.goals import list_goals, delete_goal
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     goals = list_goals(user_id)
     if not goals:
-        bot.send_message(chat_id, "No goals found.")
+        bot.send_message(chat_id, MESSAGES[lang].get('no_goals_found', "No goals found."))
         return
     for goal in goals:
         goal_id = goal["id"]
@@ -607,9 +503,10 @@ def manage_goals(bot, chat_id, user_id):
 
 def manage_countdowns(bot, chat_id, user_id):
     from modules.countdowns import list_countdowns, delete_countdown
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     countdowns = list_countdowns(user_id)
     if not countdowns:
-        bot.send_message(chat_id, "No countdowns found.")
+        bot.send_message(chat_id, MESSAGES[lang].get('no_countdowns_found', "No countdowns found."))
         return
     for cd in countdowns:
         cd_id = cd["id"]
@@ -624,13 +521,23 @@ def manage_countdowns(bot, chat_id, user_id):
 # Additional Utility: Settings Menu
 # -------------------------------
 def settings_menu(bot, chat_id, user_id):
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     markup = types.InlineKeyboardMarkup()
-    btn_change_lang = types.InlineKeyboardButton(text="Change Language", callback_data="settings_change_lang")
-    btn_change_tz = types.InlineKeyboardButton(text="Change Timezone", callback_data="settings_change_tz")
-    btn_back = types.InlineKeyboardButton(text="Back to Main Menu", callback_data="back_main")
+    btn_change_lang = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('change_language', "Change Language"),
+        callback_data="settings_change_lang"
+    )
+    btn_change_tz = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('change_timezone', "Change Timezone"),
+        callback_data="settings_change_tz"
+    )
+    btn_back = types.InlineKeyboardButton(
+        text=MESSAGES[lang].get('back_to_main_menu', "Back to Main Menu"),
+        callback_data="back_main"
+    )
     markup.row(btn_change_lang, btn_change_tz)
     markup.add(btn_back)
-    bot.send_message(chat_id, "Settings:", reply_markup=markup)
+    tracked_send_message(chat_id, user_id, MESSAGES[lang].get('settings', "Settings:"), reply_markup=markup)
 
 # -------------------------------
 # Callback Handlers for Manage Items and Settings
@@ -640,6 +547,7 @@ def manage_callback_handler(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     if data == "manage_tasks":
         manage_tasks(bot, chat_id, user_id)
     elif data == "manage_reminders":
@@ -650,7 +558,6 @@ def manage_callback_handler(call):
         manage_countdowns(bot, chat_id, user_id)
     elif data == "back_main":
         from modules.menu import send_main_menu
-        lang = user_states[user_id]['data'].get('language', 'en')
         send_main_menu(bot, chat_id, lang)
     elif data == "settings_change_lang":
         user_states[user_id]['state'] = STATE_LANGUAGE
@@ -658,17 +565,16 @@ def manage_callback_handler(call):
         btn_english = types.InlineKeyboardButton(text="English", callback_data="set_lang_en")
         btn_farsi = types.InlineKeyboardButton(text="فارسی", callback_data="set_lang_fa")
         markup.add(btn_english, btn_farsi)
-        bot.send_message(chat_id, "Please select your language:", reply_markup=markup)
+        tracked_send_message(chat_id, user_id, MESSAGES[lang].get('select_language', "Please select your language:"), reply_markup=markup)
     elif data == "settings_change_tz":
         user_states[user_id]['state'] = STATE_TIMEZONE
-        lang = user_states[user_id]['data'].get('language', 'en')
         tz_markup = types.InlineKeyboardMarkup(row_width=2)
         for label, tz_value in TIMEZONE_CHOICES:
             tz_btn = types.InlineKeyboardButton(text=label, callback_data=f"set_tz_{tz_value}")
             tz_markup.add(tz_btn)
-        bot.send_message(chat_id, MESSAGES[lang]['select_timezone'], reply_markup=tz_markup)
+        tracked_send_message(chat_id, user_id, MESSAGES[lang].get('select_timezone', "Please select your timezone:"), reply_markup=tz_markup)
     else:
-        bot.answer_callback_query(call.id, "Unhandled manage/settings option.")
+        bot.answer_callback_query(call.id, MESSAGES[lang].get('unknown_menu_option', "Unknown menu option selected."))
 
 # -------------------------------
 # Callback Handlers for Deletion Actions
@@ -677,41 +583,49 @@ def manage_callback_handler(call):
 def delete_task_handler(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     task_id = int(call.data.split("delete_task_")[1])
     from modules.tasks import delete_task
     delete_task(user_id, task_id)
-    bot.answer_callback_query(call.id, "Task deleted.")
-    bot.send_message(chat_id, "Task has been deleted.")
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('task_deleted', "Task deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('task_deleted_confirmation', "Task has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_reminder_"))
 def delete_reminder_handler(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     rem_id = int(call.data.split("delete_reminder_")[1])
     from modules.reminders import delete_reminder
     delete_reminder(user_id, rem_id)
-    bot.answer_callback_query(call.id, "Reminder deleted.")
-    bot.send_message(chat_id, "Reminder has been deleted.")
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('reminder_deleted', "Reminder deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('reminder_deleted_confirmation', "Reminder has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_goal_"))
 def delete_goal_handler(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     goal_id = int(call.data.split("delete_goal_")[1])
     from modules.goals import delete_goal
     delete_goal(user_id, goal_id)
-    bot.answer_callback_query(call.id, "Goal deleted.")
-    bot.send_message(chat_id, "Goal has been deleted.")
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('goal_deleted', "Goal deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('goal_deleted_confirmation', "Goal has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("delete_countdown_"))
 def delete_countdown_handler(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     cd_id = int(call.data.split("delete_countdown_")[1])
     from modules.countdowns import delete_countdown
     delete_countdown(user_id, cd_id)
-    bot.answer_callback_query(call.id, "Countdown deleted.")
-    bot.send_message(chat_id, "Countdown has been deleted.")
+    bot.answer_callback_query(call.id, MESSAGES[lang].get('countdown_deleted', "Countdown deleted."))
+    bot.send_message(chat_id, MESSAGES[lang].get('countdown_deleted_confirmation', "Countdown has been deleted."))
+    clear_flow_messages(chat_id, user_id)
 
 # -------------------------------
 # Integration: Weekly Schedule Module
@@ -731,6 +645,7 @@ def callback_menu_handler(call):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
     data = call.data
+    lang = user_states.get(user_id, {}).get('data', {}).get('language', 'en')
     if data == "menu_add_task":
         from modules.tasks import start_add_task
         start_add_task(bot, chat_id, user_id)
@@ -745,12 +660,10 @@ def callback_menu_handler(call):
         start_add_countdown(bot, chat_id, user_id)
     elif data == "menu_weekly_schedule":
         from modules.weekly_schedule import start_add_weekly_event
-        user_lang = user_states[user_id]['data'].get('language', 'en')
-        start_add_weekly_event(bot, chat_id, user_id, user_lang)
+        start_add_weekly_event(bot, chat_id, user_id, user_lang=lang)
     elif data == "menu_view_summary":
         from modules.summaries import send_summary
-        user_lang = user_states[user_id]['data'].get('language', 'en')
-        send_summary(bot, chat_id, user_id, user_lang)
+        send_summary(bot, chat_id, user_id, lang)
     elif data == "menu_manage_items":
         manage_items_menu(bot, chat_id, user_id)
     elif data == "menu_quotes":
@@ -759,7 +672,7 @@ def callback_menu_handler(call):
     elif data == "menu_settings":
         settings_menu(bot, chat_id, user_id)
     else:
-        bot.send_message(chat_id, "Unknown menu option selected.")
+        bot.send_message(chat_id, MESSAGES[lang].get('unknown_menu_option', "Unknown menu option selected."))
 
 # -------------------------------
 # Integration: Main Menu from modules/menu.py
@@ -770,7 +683,6 @@ from modules.menu import send_main_menu
 # Main Entry Point
 # -------------------------------
 if __name__ == "__main__":
-    from database import init_db
     init_db()
     print("Bot is running...")
     bot.infinity_polling()

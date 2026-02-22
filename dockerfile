@@ -14,8 +14,5 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy the entire project into the container.
 COPY . .
 
-# (Optional) Expose a port if your project uses one.
-# EXPOSE 5000
-
 # Run the bot.
-CMD ["python", "bot.py"]
+CMD ["python", "src/bot.py"]

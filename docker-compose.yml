@@ -1,7 +1,12 @@
 version: "3.8"
 services:
-  tg_reminder:
-    image: sandmanshiri/remindino:latest
+  bot:
+    build: .
+    container_name: remindino_bot
     volumes:
       - ./data:/app/data
-    restart: always
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/app/data/bot.db
+    restart: unless-stopped

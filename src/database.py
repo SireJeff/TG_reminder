@@ -13,16 +13,23 @@ Each table is created with all fields and constraints as per the architecture sp
 
 import sqlite3
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 from datetime import datetime
 
 # Database file name
-DATABASE_FILE = 'bot.db'
+DATABASE_FILE = os.getenv('DB_PATH', 'data/bot.db')
 
 def get_db_connection():
     """
     Returns a connection object to the SQLite database.
     Enables foreign key support and sets a row factory for dict-like access.
     """
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(DATABASE_FILE), exist_ok=True)
+
     conn = sqlite3.connect(
         DATABASE_FILE,
         detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
@@ -143,4 +150,4 @@ def init_db():
 if __name__ == "__main__":
     # When running this file directly, initialize the database.
     init_db()
-    print("Database initialized successfully.")
+    print("Database initialized successfully at", DATABASE_FILE)
